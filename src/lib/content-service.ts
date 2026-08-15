@@ -8,7 +8,7 @@ import { CMS_CONFIG, CONTENT_PATHS } from '@/config'
 import * as yaml from 'js-yaml'
 import { parseYaml } from '@/lib/yaml-utils'
 import { parseFrontmatter, stringifyFrontmatter } from '@/lib/markdown-utils'
-import type { BlogPost, Friend, Project, NavigationCategory, Album, MusicPlaylist, SiteConfig, AboutConfig, ModuleConfig } from '@/types'
+import type { BlogPost, Friend, Project, NavigationCategory, Album, MusicPlaylist, MusicCustomPlaylist, SiteConfig, AboutConfig, ModuleConfig } from '@/types'
 
 // ============ 通用 Git 提交 ============
 
@@ -343,6 +343,51 @@ export async function createMusicPlaylist(token: string, playlist: MusicPlaylist
 
 export async function deleteMusicPlaylist(token: string, filePath: string, playlistName: string): Promise<void> {
   await deleteFileFromTree(token, CMS_CONFIG.CONTENT_OWNER, CMS_CONFIG.CONTENT_REPO, filePath, `feat(music): delete playlist "${playlistName}"`, CMS_CONFIG.CONTENT_BRANCH)
+}
+
+// ============ 自定义音乐歌单 ============
+
+export async function listMusicCustomPlaylists(token: string): Promise<MusicCustomPlaylist[]> {
+  const { CONTENT_OWNER, CONTENT_REPO, CONTENT_BRANCH } = CMS_CONFIG
+  const files = await listRepoFilesRecursive(token, CONTENT_OWNER, CONTENT_REPO, CONTENT_PATHS.musicCustom, CONTENT_BRANCH)
+  const yamlFiles = files.filter((f) => f.endsWith('.yaml'))
+
+  const playlists: MusicCustomPlaylist[] = []
+  for (const filePath of yamlFiles) {
+    const content = await readTextFileFromRepo(token, CONTENT_OWNER, CONTENT_REPO, filePath, CONTENT_BRANCH)
+    if (!content) continue
+    const data = parseYaml<MusicCustomPlaylist>(content)
+    playlists.push({ ...data, _filePath: filePath })
+  }
+  return playlists
+}
+
+export async function createMusicCustomPlaylist(token: string, playlist: MusicCustomPlaylist): Promise<void> {
+  const { CONTENT_OWNER, CONTENT_REPO } = CMS_CONFIG
+  // 用编号命名：01-xxx.yaml，按现有文件数量递增
+  const all = await listMusicCustomPlaylists(token)
+  const nextIndex = String(all.length + 1).padStart(2, '0')
+  const slug = playlist.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-').toLowerCase() || 'new'
+  const filePath = `src/content/music/custom/${nextIndex}-${slug}.yaml`
+  const { _filePath, ...data } = playlist
+  const content = yaml.dump(data, { lineWidth: -1 })
+  const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+
+  await commitChanges(token, [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }], `feat(music): add custom playlist "${playlist.name}"`)
+}
+
+export async function saveMusicCustomPlaylist(token: string, playlist: MusicCustomPlaylist): Promise<void> {
+  const { CONTENT_OWNER, CONTENT_REPO } = CMS_CONFIG
+  const filePath = playlist._filePath!
+  const { _filePath, ...data } = playlist
+  const content = yaml.dump(data, { lineWidth: -1 })
+  const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+
+  await commitChanges(token, [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }], `feat(music): update custom playlist "${playlist.name}"`)
+}
+
+export async function deleteMusicCustomPlaylist(token: string, filePath: string, playlistName: string): Promise<void> {
+  await deleteFileFromTree(token, CMS_CONFIG.CONTENT_OWNER, CMS_CONFIG.CONTENT_REPO, filePath, `feat(music): delete custom playlist "${playlistName}"`, CMS_CONFIG.CONTENT_BRANCH)
 }
 
 // ============ 站点配置 ============

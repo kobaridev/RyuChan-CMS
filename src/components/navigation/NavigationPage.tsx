@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { listNavigation, saveNavigationCategory, createNavigationCategory, deleteNavigationCategory, uploadImage } from '@/lib/content-service'
 import { resolveImageUrl } from '@/lib/image-url'
 import { SafeImage } from '@/components/shared/SafeImage'
@@ -17,6 +18,7 @@ const emptyItem: NavigationItem = { name: '', url: '', avatar: '', description: 
 
 export function NavigationPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const [categories, setCategories] = useState<NavigationCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -42,15 +44,15 @@ export function NavigationPage() {
     setSaving(true)
     try {
       if (isNewCategory) {
-        await createNavigationCategory(token, editingCategory)
+        addChange({ module: 'navigation', title: `新建导航分组「${editingCategory.category}」`, action: 'create', serviceFunc: 'createNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): add category "${editingCategory.category}"` })
       } else {
-        await saveNavigationCategory(token, editingCategory)
+        addChange({ module: 'navigation', title: `更新导航分组「${editingCategory.category}」`, action: 'update', serviceFunc: 'saveNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): update category "${editingCategory.category}"` })
       }
-      toast.success(isNewCategory ? '分组已创建' : '分组已更新')
+      toast.success('已暂存')
       setEditingCategory(null)
       setIsNewCategory(false)
       load()
-    } catch (e: any) { toast.error('保存失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 
@@ -58,11 +60,11 @@ export function NavigationPage() {
     if (!token || !deleteTarget) return
     setSaving(true)
     try {
-      await deleteNavigationCategory(token, deleteTarget.category._filePath!, deleteTarget.category.category)
-      toast.success(`已删除分组 "${deleteTarget.category.category}"`)
+      addChange({ module: 'navigation', title: `删除导航分组「${deleteTarget.category.category}」`, action: 'delete', serviceFunc: 'deleteNavigationCategory', args: [deleteTarget.category._filePath!, deleteTarget.category.category], commitMessage: `feat(navigation): delete category "${deleteTarget.category.category}"` })
+      toast.success('已暂存')
       setDeleteTarget(null)
       load()
-    } catch (e: any) { toast.error('删除失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 
@@ -77,24 +79,25 @@ export function NavigationPage() {
     }
     setSaving(true)
     try {
-      await saveNavigationCategory(token, newCategories[catIdx])
-      toast.success('导航条目已更新')
+      addChange({ module: 'navigation', title: `更新导航条目「${item.name}」`, action: 'update', serviceFunc: 'saveNavigationCategory', args: [newCategories[catIdx]], commitMessage: `feat(navigation): update items in "${newCategories[catIdx].category}"` })
+      toast.success('已暂存')
       setEditingItem(null)
       load()
-    } catch (e: any) { toast.error('保存失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 
   const handleDeleteItem = async (catIdx: number, itemIdx: number) => {
     if (!token) return
     const newCategories = [...categories]
+    const deletedItem = newCategories[catIdx].navigations[itemIdx]
     newCategories[catIdx].navigations.splice(itemIdx, 1)
     setSaving(true)
     try {
-      await saveNavigationCategory(token, newCategories[catIdx])
-      toast.success('导航条目已删除')
+      addChange({ module: 'navigation', title: `删除导航条目「${deletedItem.name}」`, action: 'update', serviceFunc: 'saveNavigationCategory', args: [newCategories[catIdx]], commitMessage: `feat(navigation): remove item "${deletedItem.name}" from "${newCategories[catIdx].category}"` })
+      toast.success('已暂存')
       load()
-    } catch (e: any) { toast.error('删除失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 

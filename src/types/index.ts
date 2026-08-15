@@ -84,15 +84,23 @@ export interface Album {
 // ============ 音乐 ============
 export interface MusicSong {
   index: string
-  provider: string
-  // 自定义歌单字段
-  customTitle?: string
-  customArtist?: string
-  customCover?: string
-  customUrl?: string
+  provider: 'netease' | 'tencent' | 'custom'
+  // 自定义歌单完整字段（对应 custom/*.yaml 中的歌曲数据）
+  title?: string
+  artist?: string
+  cover?: string
+  url?: string
+  lrc?: string
+  duration?: string
 }
 
 export interface MusicPlaylist {
+  name: string
+  songs: MusicSong[]
+  _filePath?: string
+}
+
+export interface MusicCustomPlaylist {
   name: string
   songs: MusicSong[]
   _filePath?: string
@@ -223,4 +231,18 @@ export interface ProviderConfig {
 export interface SocialPreset {
   label: string
   value: string        // iconify 图标名
+}
+
+// ============ 暂存系统 ============
+export type ModuleType = 'blog' | 'project' | 'friend' | 'navigation' | 'album' | 'music' | 'about' | 'siteConfig' | 'moduleConfig' | 'moduleTitles'
+
+export interface StagedChange {
+  id: string
+  module: ModuleType
+  title: string            // 如 "更新文章「xxx」"
+  action: 'create' | 'update' | 'delete'
+  serviceFunc: string      // 如 'saveBlogPost', 'createProject'
+  args: unknown[]          // 传给 serviceFunc 的参数（不含 token）
+  commitMessage: string
+  timestamp: number
 }

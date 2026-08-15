@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { listAlbums, saveAlbum, createAlbum, uploadImage, deleteAlbum } from '@/lib/content-service'
 import { resolveImageUrl } from '@/lib/image-url'
 import { SafeImage } from '@/components/shared/SafeImage'
@@ -17,6 +18,7 @@ const emptyAlbum: Album = { date: '', title: '', description: '', icon: '', phot
 
 export function AlbumPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const [albums, setAlbums] = useState<Album[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -40,15 +42,15 @@ export function AlbumPage() {
     setSaving(true)
     try {
       if (isNew) {
-        await createAlbum(token, editing)
+        addChange({ module: 'album', title: `新建相册「${editing.title}」`, action: 'create', serviceFunc: 'createAlbum', args: [editing], commitMessage: `feat(album): add album "${editing.title}"` })
       } else {
-        await saveAlbum(token, editing)
+        addChange({ module: 'album', title: `更新相册「${editing.title}」`, action: 'update', serviceFunc: 'saveAlbum', args: [editing], commitMessage: `feat(album): update album "${editing.title}"` })
       }
-      toast.success(isNew ? '相册已创建' : '相册已保存')
+      toast.success('已暂存')
       setEditing(null)
       setIsNew(false)
       load()
-    } catch (e: any) { toast.error('保存失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 
@@ -56,11 +58,11 @@ export function AlbumPage() {
     if (!token || !deleteTarget) return
     setSaving(true)
     try {
-      await deleteAlbum(token, deleteTarget._filePath!, deleteTarget.title)
-      toast.success(`已删除 "${deleteTarget.title}"`)
+      addChange({ module: 'album', title: `删除相册「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteAlbum', args: [deleteTarget._filePath!, deleteTarget.title], commitMessage: `feat(album): delete album "${deleteTarget.title}"` })
+      toast.success('已暂存')
       setDeleteTarget(null)
       load()
-    } catch (e: any) { toast.error('删除失败: ' + e.message) }
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 

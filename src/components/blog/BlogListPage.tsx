@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { listBlogPosts, deleteBlogPost } from '@/lib/content-service'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -12,6 +13,7 @@ import { toast } from 'sonner'
 
 export function BlogListPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const navigate = useNavigate()
   const [posts, setPosts] = useState<BlogPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,12 +42,12 @@ export function BlogListPage() {
     if (!token || !deleteTarget) return
     setDeleting(true)
     try {
-      await deleteBlogPost(token, deleteTarget.filePath, deleteTarget.title)
-      toast.success(`已删除 "${deleteTarget.title}"`)
+      addChange({ module: 'blog', title: `删除文章「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteBlogPost', args: [deleteTarget.filePath, deleteTarget.title], commitMessage: `feat(blog): delete post "${deleteTarget.title}"` })
+      toast.success('已暂存')
       setPosts(posts.filter((p) => p.filePath !== deleteTarget.filePath))
       setDeleteTarget(null)
     } catch (e: any) {
-      toast.error('删除失败: ' + e.message)
+      toast.error('暂存失败: ' + e.message)
     } finally {
       setDeleting(false)
     }

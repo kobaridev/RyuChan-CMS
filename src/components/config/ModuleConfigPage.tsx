@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { getModuleConfig, saveModuleConfig, readYamlFile, saveYamlFile, readTextFile, saveTextFile, listProviderFiles, createProviderConfig, deleteProviderConfig } from '@/lib/content-service'
 import { CONTENT_PATHS } from '@/config'
 import { COMMENT_PROVIDERS, SOCIAL_PRESETS } from '@/constants'
@@ -47,6 +48,7 @@ const FILTERED_FIELDS: Record<string, string[]> = {
 
 export function ModuleConfigPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const { module } = useParams<{ module: string }>()
   const navigate = useNavigate()
   const [data, setData] = useState<Record<string, unknown> | null>(null)
@@ -90,13 +92,14 @@ export function ModuleConfigPage() {
     if (!token || !module || !modInfo) return
     setSaving(true)
     try {
+      const modName = modInfo.label
       if (modInfo.type === 'html') {
-        await saveTextFile(token, modInfo.path, textContent, `feat(config): update ${module}`)
+        addChange({ module: 'moduleConfig', title: `更新${modName}配置`, action: 'update', serviceFunc: 'saveTextFile', args: [modInfo.path, textContent, `feat(config): update ${module}`], commitMessage: `feat(config): update ${module}` })
       } else if (data) {
-        await saveYamlFile(token, modInfo.path, data, `feat(config): update ${module}`)
+        addChange({ module: 'moduleConfig', title: `更新${modName}配置`, action: 'update', serviceFunc: 'saveYamlFile', args: [modInfo.path, data, `feat(config): update ${module}`], commitMessage: `feat(config): update ${module}` })
       }
-      toast.success('配置已保存')
-    } catch (e: any) { toast.error('保存失败: ' + e.message) }
+      toast.success('已暂存')
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 

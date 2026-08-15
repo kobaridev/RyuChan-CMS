@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { readYamlFile, saveYamlFile } from '@/lib/content-service'
 import { CONTENT_PATHS } from '@/config'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
@@ -35,6 +36,7 @@ const MODULE_DEFS = [
 
 export function ModuleTitlesPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const [modules, setModules] = useState<ModuleEntry[]>(
     MODULE_DEFS.map((m) => ({ ...m, title: '', subtitle: '' }))
   )
@@ -69,23 +71,12 @@ export function ModuleTitlesPage() {
     if (!token) return
     setSaving(true)
     try {
-      // 逐个保存，每个模块独立提交
-      for (const mod of modules) {
-        // 先读取完整配置，只更新 title/subtitle
-        const existing = await readYamlFile<Record<string, unknown>>(token, mod.configPath)
-        const data = existing || {}
-        data.title = mod.title
-        data.subtitle = mod.subtitle
-        await saveYamlFile(
-          token,
-          mod.configPath,
-          data,
-          `feat(config): update ${mod.label} title/subtitle`
-        )
+      for (const m of modules) {
+        addChange({ module: 'moduleTitles', title: `更新${m.label}标题`, action: 'update', serviceFunc: 'saveModuleTitle', args: [m.configPath, m.title, m.subtitle], commitMessage: `feat(config): update ${m.label} title` })
       }
-      toast.success('所有模块标题已保存')
+      toast.success('已暂存')
     } catch (e: any) {
-      toast.error('保存失败: ' + e.message)
+      toast.error('暂存失败: ' + e.message)
     } finally {
       setSaving(false)
     }

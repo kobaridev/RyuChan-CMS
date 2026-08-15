@@ -3,7 +3,6 @@ import { EditorView, keymap } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
-import { oneDark } from '@codemirror/theme-one-dark'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { searchKeymap } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
@@ -28,7 +27,6 @@ export function MarkdownEditor({ value, onChange, className = '' }: MarkdownEdit
         doc: value,
         extensions: [
           markdown({ base: markdownLanguage, codeLanguages: languages }),
-          oneDark,
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap]),
           autocompletion(),

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { useUIStore } from '@/stores/ui-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { Menu } from 'lucide-react'
@@ -12,6 +13,19 @@ export function AppLayout() {
   const { sidebarCollapsed, toggleSidebar } = useUIStore()
   const navigate = useNavigate()
   const location = useLocation()
+
+  // 有暂存未推送时，关闭页面提示
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const { changes } = useStagingStore.getState()
+      if (changes.length > 0) {
+        e.preventDefault()
+        e.returnValue = '您有未推送的暂存更改，确定要离开吗？'
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   const handleLogout = () => {
     logout()

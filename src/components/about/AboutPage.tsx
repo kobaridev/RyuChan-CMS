@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
+import { useStagingStore } from '@/stores/staging-store'
 import { getAboutConfig, saveAboutConfig, getAboutContent, saveAboutContent, uploadImage } from '@/lib/content-service'
 import { IconPicker } from '@/components/shared/IconPicker'
 import { ImageField } from '@/components/shared/ImageField'
@@ -14,6 +15,7 @@ type Tab = 'info' | 'content'
 
 export function AboutPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const [config, setConfig] = useState<AboutConfig | null>(null)
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
@@ -37,10 +39,10 @@ export function AboutPage() {
     if (!token) return
     setSaving(true)
     try {
-      if (config) await saveAboutConfig(token, config)
-      await saveAboutContent(token, content)
-      toast.success('关于页面已保存')
-    } catch (e: any) { toast.error('保存失败: ' + e.message) }
+      if (config) addChange({ module: 'about', title: '更新关于页配置', action: 'update', serviceFunc: 'saveAboutConfig', args: [config], commitMessage: 'feat(about): update about config' })
+      addChange({ module: 'about', title: '更新关于页内容', action: 'update', serviceFunc: 'saveAboutContent', args: [content], commitMessage: 'feat(about): update about content' })
+      toast.success('已暂存')
+    } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
   }
 

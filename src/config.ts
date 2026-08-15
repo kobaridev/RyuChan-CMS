@@ -26,6 +26,7 @@ export const CONTENT_PATHS = {
   album: 'src/content/album/categories',
   albumConfig: 'src/content/album/config.yaml',
   music: 'src/content/music/list',
+  musicCustom: 'src/content/music/custom',
   musicConfig: 'src/content/music/config.yaml',
   siteConfig: 'src/content/site/config.yaml',
   aboutConfig: 'src/content/about/config.yaml',

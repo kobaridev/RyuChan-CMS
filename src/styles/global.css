@@ -83,3 +83,52 @@ body {
   transform: translateY(0);
   transition: opacity 200ms, transform 200ms;
 }
+
+/* CodeMirror 浅色主题（覆盖 oneDark） */
+.cm-editor {
+  background: transparent !important;
+}
+.cm-editor .cm-scroller {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.cm-editor .cm-content {
+  color: oklch(var(--bc)) !important;
+  padding: 8px 0;
+}
+.cm-editor .cm-gutters {
+  background: oklch(var(--b2)) !important;
+  color: oklch(var(--bc) / 0.4) !important;
+  border-right: 1px solid oklch(var(--b3)) !important;
+  font-size: 11px;
+}
+.cm-editor .cm-line {
+  padding: 0 12px;
+}
+.cm-editor .cm-lineNumbers .cm-activeLineGutter {
+  background: oklch(var(--b3)) !important;
+}
+.cm-editor .cm-activeLine {
+  background: oklch(var(--b2)) !important;
+}
+.cm-editor .cm-cursor,
+.cm-editor .cm-dropCursor {
+  border-left-color: oklch(var(--p)) !important;
+}
+.cm-editor .cm-selectionBackground,
+.cm-editor .cm-content ::selection {
+  background: oklch(var(--p) / 0.15) !important;
+}
+.cm-editor .cm-tooltip {
+  background: oklch(var(--b1)) !important;
+  border: 1px solid oklch(var(--b3)) !important;
+  color: oklch(var(--bc)) !important;
+}
+.cm-editor .cm-tooltip-autocomplete ul li[aria-selected] {
+  background: oklch(var(--b3)) !important;
+}
+.cm-editor .cm-tooltip-autocomplete ul li:hover {
+  background: oklch(var(--p) / 0.1) !important;
+}
+

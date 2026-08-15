@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
-import { listFriends, createFriend, deleteFriend, saveFriends } from '@/lib/content-service'
+import { useStagingStore } from '@/stores/staging-store'
+import { listFriends, createFriend, deleteFriend, saveFriends, uploadImage } from '@/lib/content-service'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { Plus, Edit, Trash2, Link, Save, X } from 'lucide-react'
+import { SafeImage } from '@/components/shared/SafeImage'
+import { Plus, Edit, Trash2, Link, Save, X, Upload } from 'lucide-react'
 import type { Friend } from '@/types'
 import { toast } from 'sonner'
 
@@ -12,12 +14,14 @@ const emptyFriend: Friend = { name: '', url: '', avatar: '', description: '', ba
 
 export function FriendsPage() {
   const { token } = useAuthStore()
+  const addChange = useStagingStore(s => s.addChange)
   const [friends, setFriends] = useState<Friend[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<Friend | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Friend | null>(null)
   const [isNew, setIsNew] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const load = async () => {
     if (!token) return
@@ -33,6 +37,17 @@ export function FriendsPage() {
 
   useEffect(() => { load() }, [token])
 
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !token) return
+    try {
+      const url = await uploadImage(token, file)
+      setEditing({ ...editing!, avatar: url })
+    } catch (err: any) {
+      toast.error('上传失败: ' + err.message)
+    }
+  }
+
   const handleSave = async () => {
     if (!token || !editing) return
     if (!editing.name.trim() || !editing.url.trim()) {
@@ -42,19 +57,19 @@ export function FriendsPage() {
     setSaving(true)
     try {
       if (isNew) {
-        await createFriend(token, editing)
+        addChange({ module: 'friend', title: `新增友链「${editing.name}」`, action: 'create', serviceFunc: 'createFriend', args: [editing], commitMessage: `feat(friends): add friend "${editing.name}"` })
       } else {
         const updated = friends.map((f) =>
           f._filePath === editing._filePath ? editing : f
         )
-        await saveFriends(token, updated)
+        addChange({ module: 'friend', title: `更新友链「${editing.name}」`, action: 'update', serviceFunc: 'saveFriends', args: [updated], commitMessage: `feat(friends): update friend "${editing.name}"` })
       }
-      toast.success(isNew ? '友链已添加' : '友链已更新')
+      toast.success('已暂存')
       setEditing(null)
       setIsNew(false)
       load()
     } catch (e: any) {
-      toast.error('保存失败: ' + e.message)
+      toast.error('暂存失败: ' + e.message)
     } finally {
       setSaving(false)
     }
@@ -63,12 +78,12 @@ export function FriendsPage() {
   const handleDelete = async () => {
     if (!token || !deleteTarget) return
     try {
-      await deleteFriend(token, deleteTarget._filePath!, deleteTarget.name)
-      toast.success(`已删除 "${deleteTarget.name}"`)
+      addChange({ module: 'friend', title: `删除友链「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteFriend', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(friends): delete friend "${deleteTarget.name}"` })
+      toast.success('已暂存')
       setDeleteTarget(null)
       load()
     } catch (e: any) {
-      toast.error('删除失败: ' + e.message)
+      toast.error('暂存失败: ' + e.message)
     }
   }
 
@@ -135,23 +150,47 @@ export function FriendsPage() {
             <h3 className="font-bold text-lg mb-4">{isNew ? '添加友链' : '编辑友链'}</h3>
             <div className="space-y-3">
               <div className="form-control">
-                <label className="label py-1"><span className="label-text text-sm font-medium">名称 *</span></label>
+                <label className="label py-1"><span className="label-text text-sm font-medium">name *</span></label>
                 <input className="input input-bordered input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
               </div>
               <div className="form-control">
-                <label className="label py-1"><span className="label-text text-sm font-medium">链接 *</span></label>
+                <label className="label py-1"><span className="label-text text-sm font-medium">url *</span></label>
                 <input className="input input-bordered input-sm" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} />
               </div>
               <div className="form-control">
-                <label className="label py-1"><span className="label-text text-sm font-medium">头像 URL</span></label>
-                <input className="input input-bordered input-sm" value={editing.avatar || ''} onChange={(e) => setEditing({ ...editing, avatar: e.target.value })} />
+                <label className="label py-1"><span className="label-text text-sm font-medium">avatar</span></label>
+                <div className="flex gap-3">
+                  <div className="w-16 h-16 rounded-xl overflow-hidden bg-base-200 ring-2 ring-base-100 shadow-md flex items-center justify-center shrink-0">
+                    {editing.avatar ? (
+                      <SafeImage src={editing.avatar} alt="avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-base-content/20" />
+                    )}
+                  </div>
+                  <div className="flex-1 flex flex-col justify-center gap-1.5 min-w-0">
+                    <div className="flex gap-1">
+                      <input type="text" className="input input-bordered input-sm flex-1 text-xs"
+                        value={editing.avatar || ''} onChange={(e) => setEditing({ ...editing, avatar: e.target.value })}
+                        placeholder="输入图片 URL" />
+                      {editing.avatar && (
+                        <button type="button" className="btn btn-ghost btn-xs btn-square" onClick={() => setEditing({ ...editing, avatar: '' })}>
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    <button type="button" className="btn btn-ghost btn-xs gap-1 self-start" onClick={() => fileRef.current?.click()}>
+                      <Upload className="w-3 h-3" /> 上传图片
+                    </button>
+                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                  </div>
+                </div>
               </div>
               <div className="form-control">
-                <label className="label py-1"><span className="label-text text-sm font-medium">描述</span></label>
+                <label className="label py-1"><span className="label-text text-sm font-medium">description</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm" rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
               </div>
               <div className="form-control">
-                <label className="label py-1"><span className="label-text text-sm font-medium">标签</span></label>
+                <label className="label py-1"><span className="label-text text-sm font-medium">badge</span></label>
                 <input className="input input-bordered input-sm" value={editing.badge || ''} onChange={(e) => setEditing({ ...editing, badge: e.target.value })} />
               </div>
             </div>
