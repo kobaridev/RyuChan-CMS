@@ -5,6 +5,7 @@ import {
   listMusicPlaylists, saveYamlFile, createMusicPlaylist, deleteMusicPlaylist, readYamlFile,
   listMusicCustomPlaylists, createMusicCustomPlaylist, saveMusicCustomPlaylist, deleteMusicCustomPlaylist,
 } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { CONTENT_PATHS } from '@/config'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -34,8 +35,8 @@ export function MusicPage() {
     setLoading(true)
     try {
       const [pls, customPls, apiConfig] = await Promise.all([
-        listMusicPlaylists(token),
-        listMusicCustomPlaylists(token),
+        loadWithCache('music', token, listMusicPlaylists),
+        loadWithCache('musicCustom', token, listMusicCustomPlaylists),
         readYamlFile<{ api?: string }>(token, CONTENT_PATHS.musicConfig).catch(() => null),
       ])
       setPlaylists(pls)
@@ -53,8 +54,8 @@ export function MusicPage() {
     if (!editing.name.trim()) { toast.error('请输入歌单名称'); return }
     setSaving(true)
     try {
-      if (isNew) addChange({ module: 'music', title: `新建歌单「${editing.name}」`, action: 'create', serviceFunc: 'createMusicPlaylist', args: [editing], commitMessage: `feat(music): add playlist "${editing.name}"` })
-      else addChange({ module: 'music', title: `更新歌单「${editing.name}」`, action: 'update', serviceFunc: 'saveYamlFile', args: [editing._filePath!, editing, `feat(music): update playlist "${editing.name}"`], commitMessage: `feat(music): update playlist "${editing.name}"` })
+      if (isNew) addChange({ module: 'music', title: `新建歌单「${editing.name}」`, action: 'create', serviceFunc: 'createMusicPlaylist', args: [editing], commitMessage: `feat(music): add playlist "${editing.name}"`, sourceRoute: '/music' })
+      else addChange({ module: 'music', title: `更新歌单「${editing.name}」`, action: 'update', serviceFunc: 'saveYamlFile', args: [editing._filePath!, editing, `feat(music): update playlist "${editing.name}"`], commitMessage: `feat(music): update playlist "${editing.name}"`, sourceRoute: '/music' })
       toast.success('已暂存')
       setEditing(null); setIsNew(false)
       load()
@@ -66,7 +67,7 @@ export function MusicPage() {
     if (!token || !deleteTarget) return
     setSaving(true)
     try {
-      addChange({ module: 'music', title: `删除歌单「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteMusicPlaylist', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(music): delete playlist "${deleteTarget.name}"` })
+      addChange({ module: 'music', title: `删除歌单「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteMusicPlaylist', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(music): delete playlist "${deleteTarget.name}"`, sourceRoute: '/music' })
       toast.success('已暂存')
       setDeleteTarget(null)
       load()
@@ -86,7 +87,7 @@ export function MusicPage() {
       const existing = await readYamlFile<Record<string, unknown>>(token, CONTENT_PATHS.musicConfig)
       const data = existing || {}
       data.api = apiUrl
-      addChange({ module: 'music', title: '更新音乐 API 配置', action: 'update', serviceFunc: 'saveYamlFile', args: [CONTENT_PATHS.musicConfig, data, `feat(music): update API config`], commitMessage: `feat(music): update API config` })
+      addChange({ module: 'music', title: '更新音乐 API 配置', action: 'update', serviceFunc: 'saveYamlFile', args: [CONTENT_PATHS.musicConfig, data, `feat(music): update API config`], commitMessage: `feat(music): update API config`, sourceRoute: '/music' })
       toast.success('已暂存')
     } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSavingApi(false) }
@@ -98,8 +99,8 @@ export function MusicPage() {
     if (!editingCustom.name.trim()) { toast.error('请输入歌单名称'); return }
     setSaving(true)
     try {
-      if (isNewCustom) addChange({ module: 'music', title: `新建自定义歌单「${editingCustom.name}」`, action: 'create', serviceFunc: 'createMusicCustomPlaylist', args: [editingCustom], commitMessage: `feat(music): add custom playlist "${editingCustom.name}"` })
-      else addChange({ module: 'music', title: `更新自定义歌单「${editingCustom.name}」`, action: 'update', serviceFunc: 'saveMusicCustomPlaylist', args: [editingCustom], commitMessage: `feat(music): update custom playlist "${editingCustom.name}"` })
+      if (isNewCustom) addChange({ module: 'music', title: `新建自定义歌单「${editingCustom.name}」`, action: 'create', serviceFunc: 'createMusicCustomPlaylist', args: [editingCustom], commitMessage: `feat(music): add custom playlist "${editingCustom.name}"`, sourceRoute: '/music' })
+      else addChange({ module: 'music', title: `更新自定义歌单「${editingCustom.name}」`, action: 'update', serviceFunc: 'saveMusicCustomPlaylist', args: [editingCustom], commitMessage: `feat(music): update custom playlist "${editingCustom.name}"`, sourceRoute: '/music' })
       toast.success('已暂存')
       setEditingCustom(null); setIsNewCustom(false)
       load()
@@ -111,7 +112,7 @@ export function MusicPage() {
     if (!token || !deleteCustomTarget) return
     setSaving(true)
     try {
-      addChange({ module: 'music', title: `删除自定义歌单「${deleteCustomTarget.name}」`, action: 'delete', serviceFunc: 'deleteMusicCustomPlaylist', args: [deleteCustomTarget._filePath!, deleteCustomTarget.name], commitMessage: `feat(music): delete custom playlist "${deleteCustomTarget.name}"` })
+      addChange({ module: 'music', title: `删除自定义歌单「${deleteCustomTarget.name}」`, action: 'delete', serviceFunc: 'deleteMusicCustomPlaylist', args: [deleteCustomTarget._filePath!, deleteCustomTarget.name], commitMessage: `feat(music): delete custom playlist "${deleteCustomTarget.name}"`, sourceRoute: '/music' })
       toast.success('已暂存')
       setDeleteCustomTarget(null)
       load()

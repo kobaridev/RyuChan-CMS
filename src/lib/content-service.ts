@@ -10,7 +10,224 @@ import { parseYaml } from '@/lib/yaml-utils'
 import { parseFrontmatter, stringifyFrontmatter } from '@/lib/markdown-utils'
 import type { BlogPost, Friend, Project, NavigationCategory, Album, MusicPlaylist, MusicCustomPlaylist, SiteConfig, AboutConfig, ModuleConfig } from '@/types'
 
-// ============ 通用 Git 提交 ============
+// ============ 批量提交（所有暂存改动合并为一个 commit） ============
+
+export interface BatchChange {
+  serviceFunc: string
+  args: unknown[]
+}
+
+export async function batchPushChanges(
+  token: string,
+  changes: BatchChange[]
+): Promise<void> {
+  const { CONTENT_OWNER, CONTENT_REPO, CONTENT_BRANCH } = CMS_CONFIG
+  const treeItems: TreeItem[] = []
+
+  for (const change of changes) {
+    const items = await prepareTreeItemsForChange(token, change.serviceFunc, change.args)
+    treeItems.push(...items)
+  }
+
+  if (treeItems.length === 0) throw new Error('没有可推送的更改')
+
+  // 按 path 去重：相同路径只保留最后一个（最新版本）
+  const dedupMap = new Map<string, TreeItem>()
+  for (const item of treeItems) {
+    dedupMap.set(item.path, item)
+  }
+  const uniqueItems = Array.from(dedupMap.values())
+
+  const message = 'feat: batch update from CMS'
+  await commitChanges(token, uniqueItems, message)
+}
+
+async function prepareTreeItemsForChange(
+  token: string,
+  serviceFunc: string,
+  args: unknown[]
+): Promise<TreeItem[]> {
+  const { CONTENT_OWNER, CONTENT_REPO } = CMS_CONFIG
+
+  // ========== 博客 ==========
+  if (serviceFunc === 'saveBlogPost') {
+    const [post, mode, originalFilePath] = args as [BlogPost, 'create' | 'edit', string?]
+    const filePath = post.filePath || `src/content/blog/src/${post.slug}.${post.fileFormat}`
+    const frontmatter: Record<string, unknown> = {
+      slug: post.slug, title: post.title, description: post.description, pubDate: post.pubDate,
+    }
+    if (post.updated) frontmatter.updated = post.updated
+    if (post.image) frontmatter.image = post.image
+    if (post.badge) frontmatter.badge = post.badge
+    if (post.draft !== undefined) frontmatter.draft = post.draft
+    if (post.categories?.length) frontmatter.categories = post.categories
+    if (post.tags?.length) frontmatter.tags = post.tags
+    const content = stringifyFrontmatter(frontmatter, post.content)
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    const items: TreeItem[] = [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+    if (mode === 'edit' && originalFilePath && originalFilePath !== filePath) {
+      items.push({ path: originalFilePath, mode: '100644', type: 'blob', sha: null })
+    }
+    return items
+  }
+  if (serviceFunc === 'deleteBlogPost') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 友链 ==========
+  if (serviceFunc === 'saveFriends') {
+    const friends = args[0] as Friend[]
+    const items: TreeItem[] = []
+    for (const friend of friends) {
+      const filePath = friend._filePath || `src/content/friends/list/${String(friends.indexOf(friend) + 1).padStart(2, '0')}.yaml`
+      const { _filePath, ...data } = friend
+      const content = yaml.dump(data, { lineWidth: -1 })
+      const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+      items.push({ path: filePath, mode: '100644', type: 'blob', sha: blob.sha })
+    }
+    return items
+  }
+  if (serviceFunc === 'createFriend') {
+    // 需要知道当前友链数量，从仓库获取
+    const existing = await listRepoFilesRecursive(token, CONTENT_OWNER, CONTENT_REPO, CONTENT_PATHS.friends, CMS_CONFIG.CONTENT_BRANCH)
+    const yamlFiles = existing.filter((f) => f.endsWith('.yaml'))
+    const nextIndex = String(yamlFiles.length + 1).padStart(2, '0')
+    const filePath = `src/content/friends/list/${nextIndex}.yaml`
+    const friend = args[0] as Friend
+    const { _filePath, ...data } = friend
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'deleteFriend') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 项目 ==========
+  if (serviceFunc === 'createProject') {
+    const existing = await listRepoFilesRecursive(token, CONTENT_OWNER, CONTENT_REPO, CONTENT_PATHS.projects, CMS_CONFIG.CONTENT_BRANCH)
+    const yamlFiles = existing.filter((f) => f.endsWith('.yaml'))
+    const nextIndex = String(yamlFiles.length + 1).padStart(2, '0')
+    const filePath = `src/content/project/src/${nextIndex}.yaml`
+    const project = args[0] as Project
+    const { _filePath, ...data } = project
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'deleteProject') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 导航 ==========
+  if (serviceFunc === 'saveNavigationCategory') {
+    const category = args[0] as NavigationCategory
+    const filePath = category._filePath!
+    const { _filePath, ...data } = category
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'createNavigationCategory') {
+    const category = args[0] as NavigationCategory
+    const slug = category.category.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-').toLowerCase() || 'new-category'
+    const filePath = `src/content/navigation/categories/${slug}.yaml`
+    const { _filePath, ...data } = category
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'deleteNavigationCategory') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 相册 ==========
+  if (serviceFunc === 'saveAlbum') {
+    const album = args[0] as Album
+    const filePath = album._filePath!
+    const { _filePath, ...data } = album
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'createAlbum') {
+    const album = args[0] as Album
+    const slug = album.title.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-').toLowerCase() || 'new-album'
+    const filePath = `src/content/album/categories/${slug}.yaml`
+    const { _filePath, ...data } = album
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'deleteAlbum') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 音乐 ==========
+  if (serviceFunc === 'createMusicPlaylist') {
+    const playlist = args[0] as MusicPlaylist
+    const slug = playlist.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-').toLowerCase() || 'new-playlist'
+    const filePath = `src/content/music/list/${slug}.yaml`
+    const { _filePath, ...data } = playlist
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'saveMusicCustomPlaylist') {
+    const playlist = args[0] as MusicCustomPlaylist
+    const filePath = playlist._filePath!
+    const { _filePath, ...data } = playlist
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'createMusicCustomPlaylist') {
+    const existing = await listRepoFilesRecursive(token, CONTENT_OWNER, CONTENT_REPO, CONTENT_PATHS.musicCustom, CMS_CONFIG.CONTENT_BRANCH)
+    const yamlFiles = existing.filter((f) => f.endsWith('.yaml'))
+    const nextIndex = String(yamlFiles.length + 1).padStart(2, '0')
+    const playlist = args[0] as MusicCustomPlaylist
+    const slug = playlist.name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '-').toLowerCase() || 'new'
+    const filePath = `src/content/music/custom/${nextIndex}-${slug}.yaml`
+    const { _filePath, ...data } = playlist
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'deleteMusicPlaylist' || serviceFunc === 'deleteMusicCustomPlaylist') {
+    return [{ path: args[0] as string, mode: '100644', type: 'blob', sha: null }]
+  }
+
+  // ========== 通用 YAML 保存 ==========
+  if (serviceFunc === 'saveYamlFile') {
+    const [filePath, data] = args as [string, unknown]
+    const content = yaml.dump(data, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: filePath, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+
+  // ========== 站点配置 ==========
+  if (serviceFunc === 'saveSiteConfig') {
+    const config = args[0] as SiteConfig
+    const content = yaml.dump(config, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: CONTENT_PATHS.siteConfig, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+
+  // ========== 关于页面 ==========
+  if (serviceFunc === 'saveAboutConfig') {
+    const config = args[0] as AboutConfig
+    const content = yaml.dump(config, { lineWidth: -1 })
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: CONTENT_PATHS.aboutConfig, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+  if (serviceFunc === 'saveAboutContent') {
+    const content = args[0] as string
+    const blob = await createBlob(token, CONTENT_OWNER, CONTENT_REPO, toBase64Utf8(content), 'base64')
+    return [{ path: CONTENT_PATHS.aboutSrc, mode: '100644', type: 'blob', sha: blob.sha }]
+  }
+
+  throw new Error(`未知操作: ${serviceFunc}`)
+}
 
 export async function commitChanges(
   token: string,

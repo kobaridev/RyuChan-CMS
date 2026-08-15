@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { listProjects, createProject, deleteProject, saveYamlFile, uploadImage } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SafeImage } from '@/components/shared/SafeImage'
-import { Plus, Edit, Trash2, FolderGit2, Save, X, Upload } from 'lucide-react'
+import { Plus, Edit, Trash2, FolderGit2, Save, X, Upload, AlertTriangle } from 'lucide-react'
 import type { Project } from '@/types'
 import { toast } from 'sonner'
 
@@ -16,7 +17,9 @@ const emptyProject: Project = { name: '', url: '', avatar: '', description: '', 
 export function ProjectsPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const [projects, setProjects] = useState<Project[]>([])
+  const [serverProjects, setServerProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<Project | null>(null)
@@ -24,11 +27,29 @@ export function ProjectsPage() {
   const [isNew, setIsNew] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 检查是否有暂存的项目修改
+  const stagedProjectChanges = useMemo(() =>
+    stagedChanges.filter(c => c.module === 'project' && c.action === 'update' && c.serviceFunc === 'saveYamlFile'),
+    [stagedChanges]
+  )
+
   const load = async () => {
     if (!token) return
     setLoading(true)
     try {
-      setProjects(await listProjects(token))
+      const data = await loadWithCache('projects', token, listProjects)
+      setServerProjects(data)
+      // 如果有暂存的项目更新，合并到列表中
+      if (stagedProjectChanges.length > 0) {
+        const merged = data.map(p => {
+          const staged = stagedProjectChanges.find(c => c.args[0] === p._filePath)
+          if (staged) return { ...p, ...(staged.args[1] as Partial<Project>) }
+          return p
+        })
+        setProjects(merged)
+      } else {
+        setProjects(data)
+      }
     } catch (e: any) {
       toast.error('加载失败: ' + e.message)
     } finally {
@@ -36,7 +57,20 @@ export function ProjectsPage() {
     }
   }
 
-  useEffect(() => { load() }, [token])
+  useEffect(() => { load() }, [token, stagedProjectChanges])
+
+  // 判断某个项目的某个字段是否被修改
+  const isProjectFieldModified = (filePath: string | undefined, field: keyof Project): boolean => {
+    if (!stagedProjectChanges.length || !serverProjects.length || !filePath) return false
+    const old = serverProjects.find(p => p._filePath === filePath)
+    const staged = stagedProjectChanges.find(c => c.args[0] === filePath)
+    if (!old || !staged) return false
+    const stagedData = staged.args[1] as Partial<Project>
+    return old[field] !== stagedData[field]
+  }
+
+  const modifiedClass = (filePath: string | undefined, field: keyof Project) =>
+    isProjectFieldModified(filePath, field) ? 'ring-2 ring-warning/50 bg-warning/5' : ''
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -58,9 +92,9 @@ export function ProjectsPage() {
     setSaving(true)
     try {
       if (isNew) {
-        addChange({ module: 'project', title: `新增项目「${editing.name}」`, action: 'create', serviceFunc: 'createProject', args: [editing], commitMessage: `feat(project): add project "${editing.name}"` })
+        addChange({ module: 'project', title: `新增项目「${editing.name}」`, action: 'create', serviceFunc: 'createProject', args: [editing], commitMessage: `feat(project): add project "${editing.name}"`, sourceRoute: '/projects' })
       } else {
-        addChange({ module: 'project', title: `更新项目「${editing.name}」`, action: 'update', serviceFunc: 'saveYamlFile', args: [editing._filePath!, { name: editing.name, url: editing.url, avatar: editing.avatar, description: editing.description, badge: editing.badge }, `feat(project): update project "${editing.name}"`], commitMessage: `feat(project): update project "${editing.name}"` })
+        addChange({ module: 'project', title: `更新项目「${editing.name}」`, action: 'update', serviceFunc: 'saveYamlFile', args: [editing._filePath!, { name: editing.name, url: editing.url, avatar: editing.avatar, description: editing.description, badge: editing.badge }, `feat(project): update project "${editing.name}"`], commitMessage: `feat(project): update project "${editing.name}"`, sourceRoute: '/projects' })
       }
       toast.success('已暂存')
       setEditing(null)
@@ -75,7 +109,7 @@ export function ProjectsPage() {
   const handleDelete = async () => {
     if (!token || !deleteTarget) return
     try {
-      addChange({ module: 'project', title: `删除项目「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteProject', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(project): delete project "${deleteTarget.name}"` })
+      addChange({ module: 'project', title: `删除项目「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteProject', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(project): delete project "${deleteTarget.name}"`, sourceRoute: '/projects' })
       toast.success('已暂存')
       setDeleteTarget(null)
       load()
@@ -125,16 +159,23 @@ export function ProjectsPage() {
         <div className="modal modal-open">
           <div className="modal-box">
             <h3 className="font-bold text-lg mb-4">{isNew ? '添加项目' : '编辑项目'}</h3>
+            {/* 暂存版本提示 */}
+            {!isNew && stagedProjectChanges.length > 0 && isProjectFieldModified(editing._filePath, 'name') !== undefined && (
+              <div className="alert alert-warning py-1.5 px-3 text-xs mb-3">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>黄色高亮字段为暂存区已修改内容</span>
+              </div>
+            )}
             <div className="space-y-3">
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'name')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">name *</span></label>
                 <input className="input input-bordered input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'url')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">url *</span></label>
                 <input className="input input-bordered input-sm" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'avatar')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">avatar</span></label>
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-base-200 ring-2 ring-base-100 shadow-md flex items-center justify-center shrink-0">
@@ -162,11 +203,11 @@ export function ProjectsPage() {
                   </div>
                 </div>
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'description')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">description</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm" rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'badge')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">badge</span></label>
                 <input className="input input-bordered input-sm" value={editing.badge || ''} onChange={(e) => setEditing({ ...editing, badge: e.target.value })} />
               </div>

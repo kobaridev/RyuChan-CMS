@@ -28,13 +28,24 @@ const KNOWN_FILE_MAP: Record<string, string> = {
   '/Alipay.jpg': 'assets/brand/qrcode/Alipay.jpg',
 }
 
+/**
+ * 路径前缀映射：/image/ → assets/media/
+ * 博客文章等使用的图片路径前缀
+ */
+const PATH_PREFIX_MAP: Array<[string, string]> = [
+  ['/image/', 'assets/media/'],
+  ['image/', 'assets/media/'],
+]
+
 const QR_KEYWORDS = ['wechat', 'alipay', 'qr', 'qrcode', 'wx', 'zfb']
 
 /**
  * 将相对路径映射为内容仓库中的实际路径
  * 不添加 raw URL 前缀，返回纯仓库路径
+ * @param url 图片 URL（可能为相对路径）
+ * @param basePath 文件所在路径（用于解析 ./ 相对路径）
  */
-export function resolveRepoPath(url: string | undefined | null): string {
+export function resolveRepoPath(url: string | undefined | null, basePath?: string): string {
   if (!url) return ''
 
   if (KNOWN_FILE_MAP[url]) {
@@ -42,6 +53,29 @@ export function resolveRepoPath(url: string | undefined | null): string {
   }
 
   const path = url.replace(/^\/+/, '')
+
+  // 前缀匹配：/image/xxx → assets/media/xxx
+  for (const [prefix, replacement] of PATH_PREFIX_MAP) {
+    if (url.startsWith(prefix)) {
+      return replacement + url.substring(prefix.length)
+    }
+  }
+
+  // 如果是 ./ 或 ../ 开头的相对路径，基于 basePath 解析
+  if (basePath && (path.startsWith('./') || path.startsWith('../'))) {
+    const dir = basePath.substring(0, basePath.lastIndexOf('/'))
+    const parts = dir.split('/')
+    const relParts = path.split('/')
+    for (const part of relParts) {
+      if (part === '..') {
+        parts.pop()
+      } else if (part !== '.') {
+        parts.push(part)
+      }
+    }
+    return parts.join('/')
+  }
+
   const filename = path.split('/').pop()?.toLowerCase() || ''
 
   if (QR_KEYWORDS.some(k => filename.includes(k))) {
@@ -58,11 +92,13 @@ export function resolveRepoPath(url: string | undefined | null): string {
 /**
  * 将相对路径的图片 URL 解析为完整 URL（public 仓库 raw URL）
  * 如果是绝对 URL 则直接返回
+ * @param url 图片 URL
+ * @param basePath 文件所在路径（用于解析 ./ 相对路径）
  */
-export function resolveImageUrl(url: string | undefined | null): string {
+export function resolveImageUrl(url: string | undefined | null, basePath?: string): string {
   if (!url) return ''
   if (!isRelativeUrl(url)) return url
-  return `${RAW_BASE}${resolveRepoPath(url)}`
+  return `${RAW_BASE}${resolveRepoPath(url, basePath)}`
 }
 
 // ========== Private 仓库支持 ==========

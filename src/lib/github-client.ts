@@ -9,8 +9,13 @@ function handle401Error(): void {
   window.dispatchEvent(new CustomEvent('auth:unauthorized'))
 }
 
-function handle422Error(): void {
-  toast.error('操作太快了，请稍后再试')
+function handle422Error(res?: Response): void {
+  toast.error('操作失败，请稍后再试')
+  if (res) {
+    res.json().then((body: any) => {
+      console.error('[GitHub 422]', body?.message || body?.errors || '')
+    }).catch(() => {})
+  }
 }
 
 export function toBase64Utf8(input: string): string {
@@ -26,7 +31,7 @@ export async function getRef(token: string, owner: string, repo: string, ref: st
     },
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`get ref failed: ${res.status}`)
   const data = await res.json()
   return { sha: data.object.sha }
@@ -41,7 +46,7 @@ export async function getCommit(token: string, owner: string, repo: string, sha:
     },
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`get commit failed: ${res.status}`)
   const data = await res.json()
   return data
@@ -67,7 +72,7 @@ export async function createTree(token: string, owner: string, repo: string, tre
     body: JSON.stringify({ tree, base_tree: baseTree }),
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`create tree failed: ${res.status}`)
   const data = await res.json()
   return { sha: data.sha }
@@ -85,7 +90,7 @@ export async function createCommit(token: string, owner: string, repo: string, m
     body: JSON.stringify({ message, tree, parents }),
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`create commit failed: ${res.status}`)
   const data = await res.json()
   return { sha: data.sha }
@@ -103,7 +108,7 @@ export async function updateRef(token: string, owner: string, repo: string, ref:
     body: JSON.stringify({ sha, force }),
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`update ref failed: ${res.status}`)
 }
 
@@ -117,7 +122,7 @@ export async function readTextFileFromRepo(token: string, owner: string, repo: s
     cache: 'no-store',
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (res.status === 404) return null
   if (!res.ok) throw new Error(`read file failed: ${res.status}`)
   const data: any = await res.json()
@@ -138,7 +143,7 @@ export async function getFileSha(token: string, owner: string, repo: string, pat
     },
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (res.status === 404) return undefined
   if (!res.ok) throw new Error(`get file sha failed: ${res.status}`)
   const data = await res.json()
@@ -156,7 +161,7 @@ export async function listRepoFilesRecursive(token: string, owner: string, repo:
       cache: 'no-store',
     })
     if (res.status === 401) handle401Error()
-    if (res.status === 422) handle422Error()
+    if (res.status === 422) { handle422Error(res); return ({} as never) }
     if (res.status === 404) return []
     if (!res.ok) throw new Error(`read directory failed: ${res.status}`)
     const data: any = await res.json()
@@ -191,7 +196,7 @@ export async function createBlob(token: string, owner: string, repo: string, con
     body: JSON.stringify({ content, encoding }),
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`create blob failed: ${res.status}`)
   const data = await res.json()
   return { sha: data.sha }
@@ -212,7 +217,7 @@ export async function deleteFileFromTree(token: string, owner: string, repo: str
     body: JSON.stringify({ message, sha, branch }),
   })
   if (res.status === 401) handle401Error()
-  if (res.status === 422) handle422Error()
+  if (res.status === 422) { handle422Error(res); return ({} as never) }
   if (!res.ok) throw new Error(`delete file failed: ${res.status}`)
 }
 

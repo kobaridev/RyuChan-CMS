@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { getAboutConfig, saveAboutConfig, getAboutContent, saveAboutContent, uploadImage } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { IconPicker } from '@/components/shared/IconPicker'
 import { ImageField } from '@/components/shared/ImageField'
 import { MarkdownEditorToggle } from '@/components/shared/MarkdownEditorToggle'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { Save, Settings, Plus, Trash2 } from 'lucide-react'
+import { Save, Settings, Plus, Trash2, AlertTriangle } from 'lucide-react'
 import { Icon } from '@iconify/react'
 import type { AboutConfig } from '@/types'
 import { toast } from 'sonner'
@@ -16,31 +17,66 @@ type Tab = 'info' | 'content'
 export function AboutPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const [config, setConfig] = useState<AboutConfig | null>(null)
+  const [serverConfig, setServerConfig] = useState<AboutConfig | null>(null)
   const [content, setContent] = useState('')
+  const [serverContent, setServerContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('info')
+
+  // 检查是否有暂存的修改
+  const stagedConfigChange = useMemo(() =>
+    stagedChanges.find(c => c.module === 'about' && c.serviceFunc === 'saveAboutConfig'),
+    [stagedChanges]
+  )
+  const stagedContentChange = useMemo(() =>
+    stagedChanges.find(c => c.module === 'about' && c.serviceFunc === 'saveAboutContent'),
+    [stagedChanges]
+  )
+
+  const stagedConfig = stagedConfigChange ? (stagedConfigChange.args[0] as AboutConfig) : null
+  const stagedContent = stagedContentChange ? (stagedContentChange.args[0] as string) : null
 
   useEffect(() => {
     if (!token) return
     setLoading(true)
     Promise.all([
-      getAboutConfig(token),
-      getAboutContent(token),
+      loadWithCache('aboutConfig', token, getAboutConfig),
+      loadWithCache('aboutContent', token, getAboutContent),
     ]).then(([cfg, cnt]) => {
-      setConfig(cfg)
-      setContent(cnt)
+      setServerConfig(cfg)
+      setServerContent(cnt)
+      setConfig(stagedConfig || cfg)
+      setContent(stagedContent ?? cnt)
     }).catch((e) => toast.error('加载失败: ' + e.message))
     .finally(() => setLoading(false))
-  }, [token])
+  }, [token, stagedConfig, stagedContent])
+
+  // 简单字段对比
+  const isModified = (path: string): boolean => {
+    if (!serverConfig || !stagedConfig) return false
+    const get = (obj: unknown, p: string) => p.split('.').reduce((o: any, k) => o?.[k], obj)
+    const oldVal = get(serverConfig, path)
+    const newVal = get(stagedConfig, path)
+    if (Array.isArray(oldVal) && Array.isArray(newVal)) {
+      return JSON.stringify(oldVal) !== JSON.stringify(newVal)
+    }
+    return oldVal !== newVal
+  }
+
+  const modifiedClass = (path: string) =>
+    isModified(path) ? 'ring-2 ring-warning/50 bg-warning/5' : ''
+
+  const hasStagedChanges = !!(stagedConfig || stagedContent)
 
   const handleSave = async () => {
     if (!token) return
     setSaving(true)
     try {
-      if (config) addChange({ module: 'about', title: '更新关于页配置', action: 'update', serviceFunc: 'saveAboutConfig', args: [config], commitMessage: 'feat(about): update about config' })
-      addChange({ module: 'about', title: '更新关于页内容', action: 'update', serviceFunc: 'saveAboutContent', args: [content], commitMessage: 'feat(about): update about content' })
+      if (config) addChange({ module: 'about', title: '更新关于页配置', action: 'update', serviceFunc: 'saveAboutConfig', args: [config], commitMessage: 'feat(about): update about config', sourceRoute: '/about' })
+      addChange({ module: 'about', title: '更新关于页内容', action: 'update', serviceFunc: 'saveAboutContent', args: [content], commitMessage: 'feat(about): update about content', sourceRoute: '/about' })
       toast.success('已暂存')
     } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
@@ -54,8 +90,8 @@ export function AboutPage() {
   if (loading) return <LoadingSpinner />
   if (!config) return <div className="text-center py-8 text-base-content/50">加载失败</div>
 
-  const f = (label: string, value: string, onChange: (v: string) => void) => (
-    <div className="form-control w-full">
+  const f = (label: string, value: string, onChange: (v: string) => void, modPath?: string) => (
+    <div className={`form-control w-full ${modPath ? modifiedClass(modPath) : ''}`}>
       <label className="label py-1.5"><span className="label-text text-xs font-semibold tracking-wide uppercase text-primary/60">{label}</span></label>
       <input className="input input-bordered input-sm w-full bg-base-100 focus:outline-none focus:border-primary/50 transition-colors" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
@@ -70,6 +106,14 @@ export function AboutPage() {
           保存全部
         </button>
       </div>
+
+      {/* 暂存版本提示 */}
+      {hasStagedChanges && serverConfig && (
+        <div className="alert alert-warning py-2 px-4 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>当前正在编辑<strong>暂存版本</strong>，黄色高亮字段为已修改内容。推送后将以暂存版本为准。</span>
+        </div>
+      )}
 
       <div className="tabs tabs-boxed bg-base-100">
         <button className={`tab tab-sm ${activeTab === 'info' ? 'tab-active' : ''}`} onClick={() => setActiveTab('info')}>
@@ -90,13 +134,13 @@ export function AboutPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {f('页面标题', config.page.title, (v) => setConfig({ ...config, page: { ...config.page, title: v } }))}
-              {f('页面副标题', config.page.subtitle, (v) => setConfig({ ...config, page: { ...config.page, subtitle: v } }))}
-              {f('名称', config.name, (v) => setConfig({ ...config, name: v }))}
-              {f('显示名称', config.displayName || '', (v) => setConfig({ ...config, displayName: v }))}
-              {f('职位', config.title, (v) => setConfig({ ...config, title: v }))}
-              {f('GitHub 用户名', config.githubUsername, (v) => setConfig({ ...config, githubUsername: v }))}
-              {f('GitHub 仓库', config.githubRepo, (v) => setConfig({ ...config, githubRepo: v }))}
+              {f('页面标题', config.page.title, (v) => setConfig({ ...config, page: { ...config.page, title: v } }), 'page.title')}
+              {f('页面副标题', config.page.subtitle, (v) => setConfig({ ...config, page: { ...config.page, subtitle: v } }), 'page.subtitle')}
+              {f('名称', config.name, (v) => setConfig({ ...config, name: v }), 'name')}
+              {f('显示名称', config.displayName || '', (v) => setConfig({ ...config, displayName: v }), 'displayName')}
+              {f('职位', config.title, (v) => setConfig({ ...config, title: v }), 'title')}
+              {f('GitHub 用户名', config.githubUsername, (v) => setConfig({ ...config, githubUsername: v }), 'githubUsername')}
+              {f('GitHub 仓库', config.githubRepo, (v) => setConfig({ ...config, githubRepo: v }), 'githubRepo')}
 
               <div className="col-span-full">
                 <label className="label py-1.5"><span className="label-text text-xs font-semibold tracking-wide uppercase text-primary/60">个人描述</span></label>
@@ -211,7 +255,7 @@ export function AboutPage() {
       )}
 
       {activeTab === 'content' && (
-        <div className="bg-base-100 rounded-xl border border-base-300 overflow-hidden p-4">
+        <div className={`bg-base-100 rounded-xl border overflow-hidden p-4 ${stagedContent && serverContent ? 'border-warning ring-2 ring-warning/30' : 'border-base-300'}`}>
           <MarkdownEditorToggle value={content} onChange={setContent} minHeight="400px" />
         </div>
       )}

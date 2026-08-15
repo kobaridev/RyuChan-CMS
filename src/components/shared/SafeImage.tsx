@@ -10,6 +10,8 @@ interface SafeImageProps {
   hideOnError?: boolean
   /** 加载中的占位符 */
   fallback?: React.ReactNode
+  /** 文件所在仓库路径，用于解析相对路径图片（如 ./images/xxx.png） */
+  basePath?: string
 }
 
 /**
@@ -21,7 +23,7 @@ interface SafeImageProps {
  * 3. 加载失败 → 通过 GitHub API 获取（支持 private 仓库）
  * 4. 结果缓存，避免重复请求
  */
-export function SafeImage({ src, alt = '', className = '', hideOnError = true, fallback }: SafeImageProps) {
+export function SafeImage({ src, alt = '', className = '', hideOnError = true, fallback, basePath }: SafeImageProps) {
   const { token } = useAuthStore()
   const imgRef = useRef<HTMLImageElement>(null)
   const [displaySrc, setDisplaySrc] = useState<string>('')
@@ -47,11 +49,11 @@ export function SafeImage({ src, alt = '', className = '', hideOnError = true, f
       return
     }
 
-    // 相对路径：先尝试 raw URL
-    const rawUrl = resolveImageUrl(src)
+    // 相对路径：先尝试 raw URL（传入 basePath 解析相对路径）
+    const rawUrl = resolveImageUrl(src, basePath)
     setDisplaySrc(rawUrl)
     setLoading(false)
-  }, [src])
+  }, [src, basePath])
 
   // 处理加载失败 → 通过 GitHub API 获取
   const handleError = async () => {
@@ -72,7 +74,7 @@ export function SafeImage({ src, alt = '', className = '', hideOnError = true, f
 
     setLoading(true)
     try {
-      const repoPath = resolveRepoPath(src)
+      const repoPath = resolveRepoPath(src, basePath)
       const dataUrl = await fetchImageViaApi(token, repoPath)
       if (mountedRef.current) {
         setDisplaySrc(dataUrl)

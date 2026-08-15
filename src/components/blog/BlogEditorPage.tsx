@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { getBlogPost, saveBlogPost, uploadImage, getSiteConfig, listBlogPosts } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { MarkdownEditorToggle } from '@/components/shared/MarkdownEditorToggle'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { ArrowLeft, Save, FileText, Images, Copy, Trash2, Pin, Calendar, ChevronDown } from 'lucide-react'
+import { SafeImage } from '@/components/shared/SafeImage'
+import { ArrowLeft, Save, FileText, Images, Copy, Trash2, Pin, Calendar, ChevronDown, AlertTriangle } from 'lucide-react'
 import type { BlogPost } from '@/types'
 import { toast } from 'sonner'
 
@@ -25,11 +27,13 @@ const emptyPost: BlogPost = {
 export function BlogEditorPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const navigate = useNavigate()
   const { slug } = useParams<{ slug: string }>()
   const isEdit = !!slug
 
   const [post, setPost] = useState<BlogPost>(emptyPost)
+  const [serverPost, setServerPost] = useState<BlogPost | null>(null) // 服务器原始数据，用于对比
   const [originalFilePath, setOriginalFilePath] = useState('')
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -39,6 +43,18 @@ export function BlogEditorPage() {
   const [newCatInput, setNewCatInput] = useState('')
   const [showCatDropdown, setShowCatDropdown] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
+
+  // 检查是否有暂存的修改版本
+  const stagedChange = useMemo(() => {
+    if (!isEdit || !slug) return null
+    return stagedChanges.find(c =>
+      c.module === 'blog' &&
+      (c.action === 'update' || c.action === 'create') &&
+      (c.args[0] as BlogPost)?.slug === slug
+    )
+  }, [stagedChanges, isEdit, slug])
+
+  const stagedPost = stagedChange ? (stagedChange.args[0] as BlogPost) : null
 
   useEffect(() => {
     if (!token) return
@@ -56,13 +72,24 @@ export function BlogEditorPage() {
   useEffect(() => {
     if (!token || !isEdit) return
     setLoading(true)
-    getBlogPost(token, slug!)
-      .then((data) => { if (data) { setPost(data); setOriginalFilePath(data.filePath) }
+    loadWithCache('blogPost_' + slug!, token, (t) => getBlogPost(t, slug!))
+      .then((data) => {
+        if (data) {
+          setServerPost(data)
+          // 如果暂存区有更新版本，优先使用暂存数据
+          if (stagedPost) {
+            setPost({ ...stagedPost, filePath: stagedPost.filePath || data.filePath })
+            setOriginalFilePath(data.filePath)
+          } else {
+            setPost(data)
+            setOriginalFilePath(data.filePath)
+          }
+        }
         else { toast.error('文章不存在'); navigate('/blog') }
       })
       .catch((e) => toast.error('加载文章失败: ' + e.message))
       .finally(() => setLoading(false))
-  }, [token, slug, isEdit, navigate])
+  }, [token, slug, isEdit, navigate, stagedPost])
 
   const handleSave = async () => {
     if (!token) return
@@ -73,7 +100,7 @@ export function BlogEditorPage() {
     }
     setSaving(true)
     try {
-      addChange({ module: 'blog', title: `${isEdit ? '更新' : '发布'}文章「${post.title}」`, action: isEdit ? 'update' : 'create', serviceFunc: 'saveBlogPost', args: [post, isEdit ? 'edit' : 'create', originalFilePath], commitMessage: isEdit ? `feat(blog): update post "${post.title}"` : `feat(blog): publish post "${post.title}"` })
+      addChange({ module: 'blog', title: `${isEdit ? '更新' : '发布'}文章「${post.title}」`, action: isEdit ? 'update' : 'create', serviceFunc: 'saveBlogPost', args: [post, isEdit ? 'edit' : 'create', originalFilePath], commitMessage: isEdit ? `feat(blog): update post "${post.title}"` : `feat(blog): publish post "${post.title}"`, sourceRoute: `/blog/${post.slug || 'new'}/edit` })
       toast.success('已暂存')
       navigate('/blog')
     } catch (e: any) { toast.error('暂存失败: ' + e.message) }
@@ -110,6 +137,21 @@ export function BlogEditorPage() {
 
   const isPin = post.badge === 'Pin' || post.badge === 'pin'
 
+  // 判断字段是否被修改（与服务器版本对比）
+  const isFieldModified = (field: keyof BlogPost): boolean => {
+    if (!serverPost || !stagedPost) return false
+    const a = serverPost[field]
+    const b = stagedPost[field]
+    if (field === 'categories' || field === 'tags') {
+      return JSON.stringify(a) !== JSON.stringify(b)
+    }
+    return a !== b
+  }
+
+  // 被修改字段的样式
+  const modifiedClass = (field: keyof BlogPost) =>
+    isFieldModified(field) ? 'ring-2 ring-warning/50 bg-warning/5' : ''
+
   if (loading) return <LoadingSpinner />
 
   return (
@@ -127,6 +169,14 @@ export function BlogEditorPage() {
           {saving ? '保存中...' : '保存'}
         </button>
       </div>
+
+      {/* 暂存版本提示 */}
+      {stagedPost && serverPost && (
+        <div className="alert alert-warning py-2 px-4 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>当前正在编辑<strong>暂存版本</strong>，黄色高亮字段为已修改内容。推送后将以暂存版本为准。</span>
+        </div>
+      )}
 
       {/* 文章属性 */}
       <div className="card bg-base-100 border border-base-200 shadow-sm">
@@ -153,7 +203,7 @@ export function BlogEditorPage() {
                 >
                   {post.image ? (
                     <div className="group relative w-full h-full min-h-[180px] rounded-xl overflow-hidden">
-                      <img src={post.image} alt="封面" className="w-full h-full object-cover" />
+                      <SafeImage src={post.image} alt="封面" basePath={post.filePath} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
                         <span className="text-xs text-white font-semibold">点击更换</span>
                       </div>
@@ -196,12 +246,12 @@ export function BlogEditorPage() {
             <div className="space-y-5">
               <div>
                 <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">标题 <span className="text-error">*</span></div>
-                <input type="text" className="input input-bordered w-full bg-base-100 focus:input-primary text-sm"
+                <input type="text" className={`input input-bordered w-full bg-base-100 focus:input-primary text-sm ${modifiedClass('title')}`}
                   value={post.title} onChange={(e) => updateField('title', e.target.value)} placeholder="文章标题" />
               </div>
               <div>
                 <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">SLUG</div>
-                <input type="text" className="input input-bordered w-full bg-base-100 focus:input-primary text-sm font-mono"
+                <input type="text" className={`input input-bordered w-full bg-base-100 focus:input-primary text-sm font-mono ${modifiedClass('slug')}`}
                   value={post.slug} onChange={(e) => updateField('slug', e.target.value)} placeholder="自动生成" />
               </div>
               <div>
@@ -213,7 +263,7 @@ export function BlogEditorPage() {
                     {isPin ? 'Pin' : 'Badge'}
                   </button>
                   {!isPin && (
-                    <input type="text" className="input input-bordered input-sm flex-1 bg-transparent focus:bg-base-100"
+                    <input type="text" className={`input input-bordered input-sm flex-1 bg-transparent focus:bg-base-100 ${modifiedClass('badge')}`}
                       value={post.badge || ''} onChange={(e) => updateField('badge', e.target.value)} placeholder="自定义 Badge" />
                   )}
                 </div>
@@ -233,7 +283,7 @@ export function BlogEditorPage() {
               </div>
               <div>
                 <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">发布日期</div>
-                <div className="input input-bordered w-full bg-base-100 focus:input-primary flex items-center gap-2 text-sm">
+                <div className={`input input-bordered w-full bg-base-100 focus:input-primary flex items-center gap-2 text-sm ${modifiedClass('pubDate')}`}>
                   <Calendar className="w-4 h-4 text-base-content/40 shrink-0" />
                   <input type="date" className="flex-1 bg-transparent border-0 p-0 focus:outline-none"
                     value={post.pubDate} onChange={(e) => updateField('pubDate', e.target.value)} />
@@ -241,7 +291,7 @@ export function BlogEditorPage() {
               </div>
               <div>
                 <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">标签</div>
-                <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 border border-base-300 rounded-lg bg-base-100 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-colors">
+                <div className={`flex flex-wrap gap-1.5 min-h-[36px] p-2 border border-base-300 rounded-lg bg-base-100 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-colors ${modifiedClass('tags')}`}>
                   {(post.tags || []).map((tag, idx) => (
                     <span key={idx} className="badge badge-primary badge-sm gap-0.5 py-2 px-3 text-xs bg-primary/10 text-primary">
                       {tag}<button className="hover:text-error" onClick={() => removeTag(idx)}>&times;</button>
@@ -264,14 +314,14 @@ export function BlogEditorPage() {
               {/* 左侧：描述 */}
               <div>
                 <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">描述</div>
-                <textarea className="textarea textarea-bordered w-full bg-base-100 focus:textarea-primary resize-none text-sm min-h-[90px]"
+                <textarea className={`textarea textarea-bordered w-full bg-base-100 focus:textarea-primary resize-none text-sm min-h-[90px] ${modifiedClass('description')}`}
                   value={post.description} onChange={(e) => updateField('description', e.target.value)} placeholder="文章摘要" />
               </div>
               {/* 右侧：分类 + 隐藏 */}
               <div className="space-y-5">
                 <div>
                   <div className="text-xs font-semibold text-base-content/50 mb-1.5 uppercase tracking-wide">分类</div>
-                  <div className="flex flex-wrap gap-1.5 min-h-[36px] px-2 py-1.5 border border-base-300 rounded-lg bg-base-100 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-colors relative">
+                  <div className={`flex flex-wrap gap-1.5 min-h-[36px] px-2 py-1.5 border border-base-300 rounded-lg bg-base-100 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-colors relative ${modifiedClass('categories')}`}>
                     {(post.categories || []).map((cat, idx) => (
                       <span key={idx} className="badge badge-primary badge-sm gap-0.5 py-2 px-3 text-xs bg-primary/10 text-primary">
                         {cat}<button className="hover:text-error" onClick={() => removeCategory(idx)}>&times;</button>
@@ -313,7 +363,7 @@ export function BlogEditorPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className={`flex items-center gap-2 cursor-pointer ${modifiedClass('draft')}`}>
                     <input type="checkbox" className="checkbox checkbox-primary checkbox-sm" checked={post.draft || false}
                       onChange={(e) => updateField('draft', e.target.checked)} />
                     <span className="text-sm text-base-content/80">隐藏此文章（草稿）</span>
@@ -325,7 +375,7 @@ export function BlogEditorPage() {
       </div>
 
       {/* 编辑器 */}
-      <div className="bg-base-100 rounded-xl border border-base-300 overflow-hidden p-4" style={{ minHeight: 'calc(100vh - 500px)' }}>
+      <div className={`bg-base-100 rounded-xl border overflow-hidden p-4 ${isFieldModified('content') ? 'border-warning ring-2 ring-warning/30' : 'border-base-300'}`} style={{ minHeight: 'calc(100vh - 500px)' }}>
         <MarkdownEditorToggle value={post.content} onChange={(v) => updateField('content', v)} codeTheme={codeTheme} />
       </div>
     </div>

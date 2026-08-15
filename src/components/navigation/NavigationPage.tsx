@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { listNavigation, saveNavigationCategory, createNavigationCategory, deleteNavigationCategory, uploadImage } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { resolveImageUrl } from '@/lib/image-url'
 import { SafeImage } from '@/components/shared/SafeImage'
 import { IconPicker } from '@/components/shared/IconPicker'
@@ -31,7 +32,7 @@ export function NavigationPage() {
   const load = async () => {
     if (!token) return
     setLoading(true)
-    try { setCategories(await listNavigation(token)) }
+    try { setCategories(await loadWithCache('navigation', token, listNavigation)) }
     catch (e: any) { toast.error('加载失败: ' + e.message) }
     finally { setLoading(false) }
   }
@@ -44,9 +45,9 @@ export function NavigationPage() {
     setSaving(true)
     try {
       if (isNewCategory) {
-        addChange({ module: 'navigation', title: `新建导航分组「${editingCategory.category}」`, action: 'create', serviceFunc: 'createNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): add category "${editingCategory.category}"` })
+        addChange({ module: 'navigation', title: `新建导航分组「${editingCategory.category}」`, action: 'create', serviceFunc: 'createNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): add category "${editingCategory.category}"`, sourceRoute: '/navigation' })
       } else {
-        addChange({ module: 'navigation', title: `更新导航分组「${editingCategory.category}」`, action: 'update', serviceFunc: 'saveNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): update category "${editingCategory.category}"` })
+        addChange({ module: 'navigation', title: `更新导航分组「${editingCategory.category}」`, action: 'update', serviceFunc: 'saveNavigationCategory', args: [editingCategory], commitMessage: `feat(navigation): update category "${editingCategory.category}"`, sourceRoute: '/navigation' })
       }
       toast.success('已暂存')
       setEditingCategory(null)
@@ -60,7 +61,7 @@ export function NavigationPage() {
     if (!token || !deleteTarget) return
     setSaving(true)
     try {
-      addChange({ module: 'navigation', title: `删除导航分组「${deleteTarget.category.category}」`, action: 'delete', serviceFunc: 'deleteNavigationCategory', args: [deleteTarget.category._filePath!, deleteTarget.category.category], commitMessage: `feat(navigation): delete category "${deleteTarget.category.category}"` })
+      addChange({ module: 'navigation', title: `删除导航分组「${deleteTarget.category.category}」`, action: 'delete', serviceFunc: 'deleteNavigationCategory', args: [deleteTarget.category._filePath!, deleteTarget.category.category], commitMessage: `feat(navigation): delete category "${deleteTarget.category.category}"`, sourceRoute: '/navigation' })
       toast.success('已暂存')
       setDeleteTarget(null)
       load()

@@ -21,9 +21,9 @@ const menuItems = [
       { label: '导航', path: '/navigation', icon: Compass },
       { label: '相册', path: '/album', icon: Images },
       { label: '音乐', path: '/music', icon: Music },
+      { label: '关于', path: '/about', icon: User },
     ],
   },
-  { label: '关于页面', path: '/about', icon: User },
   {
     label: '站点配置',
     children: [
@@ -93,8 +93,9 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse }
                   </div>
                 ) : (
                   <details open>
-                    <summary className="font-semibold text-sm text-base-content/70 list-none [&::after]:hidden">
+                    <summary className="font-semibold text-sm text-base-content/70 list-none [&::after]:hidden flex items-center">
                       {item.label}
+                      <span className="caret-icon ml-auto" />
                     </summary>
                     <ul className="mt-1 ml-2">
                       {item.children.map((child) => (

@@ -1,19 +1,28 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { listBlogPosts, deleteBlogPost } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
-import { Plus, Edit, Trash2, Search, FileText, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { SafeImage } from '@/components/shared/SafeImage'
+import { Plus, Edit, Trash2, Search, FileText, Eye, EyeOff, ArrowRight, Clock, Upload } from 'lucide-react'
 import { Icon } from '@iconify/react'
 import type { BlogPost } from '@/types'
 import { toast } from 'sonner'
 
+/** 扩展文章类型，增加暂存状态标记 */
+interface BlogPostWithStatus extends BlogPost {
+  stagingStatus?: 'new' | 'modified' | 'published'
+  isStagingVirtual?: boolean
+}
+
 export function BlogListPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const navigate = useNavigate()
   const [posts, setPosts] = useState<BlogPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -25,7 +34,7 @@ export function BlogListPage() {
     if (!token) return
     setLoading(true)
     try {
-      const data = await listBlogPosts(token)
+      const data = await loadWithCache('blog', token, listBlogPosts)
       setPosts(data)
     } catch (e: any) {
       toast.error('加载文章失败: ' + e.message)
@@ -38,11 +47,80 @@ export function BlogListPage() {
     loadPosts()
   }, [token])
 
+  // 合并暂存的新文章 + 仓库文章，标记暂存状态，按时间排序
+  const mergedPosts = useMemo((): BlogPostWithStatus[] => {
+    const blogChanges = stagedChanges.filter(c => c.module === 'blog')
+
+    // 构建暂存中更新的 slug/filePath 集合
+    const modifiedSlugs = new Set<string>()
+    const deletedPaths = new Set<string>()
+    const newPosts: BlogPostWithStatus[] = []
+
+    for (const change of blogChanges) {
+      if (change.action === 'delete') {
+        // args: [filePath, title]
+        deletedPaths.add(change.args[0] as string)
+      } else if (change.action === 'update') {
+        // args: [post, 'edit', originalFilePath]
+        const post = change.args[0] as BlogPost
+        if (post?.slug) modifiedSlugs.add(post.slug)
+      } else if (change.action === 'create') {
+        // args: [post, 'create', originalFilePath]
+        const post = change.args[0] as BlogPost
+        if (post?.slug) {
+          // 检查这篇文章是否已经在仓库中（通过 slug）
+          modifiedSlugs.add(post.slug)
+        }
+      }
+    }
+
+    // 标记仓库文章 + 排除已删除的
+    const result: BlogPostWithStatus[] = posts
+      .filter(p => !deletedPaths.has(p.filePath))
+      .map(p => ({
+        ...p,
+        stagingStatus: modifiedSlugs.has(p.slug) ? 'modified' : 'published',
+      }))
+
+    // 从暂存中提取新文章（action === 'create' 且 slug 不在仓库中）
+    for (const change of blogChanges) {
+      if (change.action === 'create') {
+        const post = change.args[0] as BlogPost
+        if (post?.slug && !posts.some(p => p.slug === post.slug)) {
+          result.push({
+            ...post,
+            // 虚拟文章补充默认字段，确保卡片能正常渲染
+            filePath: post.filePath || `__staging__/${post.slug}`,
+            fileFormat: post.fileFormat || 'md',
+            stagingStatus: 'new',
+            isStagingVirtual: true,
+          })
+        }
+      }
+    }
+
+    // 按暂存状态 + 时间排序（已修改/新文章置顶，再按时间降序）
+    result.sort((a, b) => {
+      // 暂存状态优先级：new(0) > modified(1) > published(2)
+      const order = { new: 0, modified: 1, published: 2 }
+      const sa = order[a.stagingStatus || 'published']
+      const sb = order[b.stagingStatus || 'published']
+      if (sa !== sb) return sa - sb
+
+      // 再按 pubDate 降序
+      const da = a.pubDate ? new Date(a.pubDate).getTime() : 0
+      const db = b.pubDate ? new Date(b.pubDate).getTime() : 0
+      return db - da
+    })
+
+    return result
+  }, [posts, stagedChanges])
+
   const handleDelete = async () => {
     if (!token || !deleteTarget) return
     setDeleting(true)
     try {
-      addChange({ module: 'blog', title: `删除文章「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteBlogPost', args: [deleteTarget.filePath, deleteTarget.title], commitMessage: `feat(blog): delete post "${deleteTarget.title}"` })
+      addChange({ module: 'blog', title: `删除文章「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteBlogPost', args: [deleteTarget.filePath, deleteTarget.title], commitMessage: `feat(blog): delete post "${deleteTarget.title}"`, sourceRoute: '/blog' })
       toast.success('已暂存')
       setPosts(posts.filter((p) => p.filePath !== deleteTarget.filePath))
       setDeleteTarget(null)
@@ -53,7 +131,7 @@ export function BlogListPage() {
     }
   }
 
-  const filteredPosts = posts.filter((p) => {
+  const filteredPosts = mergedPosts.filter((p) => {
     if (!search) return true
     const q = search.toLowerCase()
     return (
@@ -129,7 +207,15 @@ export function BlogListPage() {
                   <div className="overflow-hidden">
                     <div className="mb-2 flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-lg truncate">{post.title}</h3>
-                      {post.draft ? (
+                      {post.stagingStatus === 'new' ? (
+                        <span className="badge badge-info badge-sm gap-1">
+                          <Upload className="w-3 h-3" /> 新文章待发布
+                        </span>
+                      ) : post.stagingStatus === 'modified' ? (
+                        <span className="badge badge-warning badge-sm gap-1">
+                          <Clock className="w-3 h-3" /> 已修改待发布
+                        </span>
+                      ) : post.draft ? (
                         <span className="badge badge-warning badge-sm gap-1">
                           <EyeOff className="w-3 h-3" /> 草稿
                         </span>
@@ -177,9 +263,10 @@ export function BlogListPage() {
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 z-10 transition-all duration-300 flex items-center justify-center">
                       <ArrowRight className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:translate-x-2" />
                     </div>
-                    <img
+                    <SafeImage
                       src={post.image}
                       alt={post.title}
+                      basePath={post.filePath}
                       className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                     />
                   </div>
@@ -199,9 +286,10 @@ export function BlogListPage() {
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 z-10 transition-all duration-300 flex items-center justify-center">
                         <ArrowRight className="w-12 h-12 text-white opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:translate-x-2" />
                       </div>
-                      <img
+                      <SafeImage
                         src={post.image}
                         alt={post.title}
+                        basePath={post.filePath}
                         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                       />
                     </div>
@@ -209,7 +297,11 @@ export function BlogListPage() {
                   <div className="p-4 overflow-hidden flex flex-col">
                     <div className="mb-2 flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-lg truncate">{post.title}</h3>
-                      {post.draft ? (
+                      {post.stagingStatus === 'new' ? (
+                        <span className="badge badge-info badge-sm gap-1"><Upload className="w-3 h-3" /> 新文章待发布</span>
+                      ) : post.stagingStatus === 'modified' ? (
+                        <span className="badge badge-warning badge-sm gap-1"><Clock className="w-3 h-3" /> 已修改待发布</span>
+                      ) : post.draft ? (
                         <span className="badge badge-warning badge-sm gap-1"><EyeOff className="w-3 h-3" /> 草稿</span>
                       ) : (
                         <span className="badge badge-success badge-sm gap-1"><Eye className="w-3 h-3" /> 已发布</span>
@@ -271,8 +363,14 @@ export function BlogListPage() {
                 {/* 点击跳转编辑 */}
                 <button
                   className="absolute inset-0 z-0"
-                  onClick={() => navigate(`/blog/${post.slug}/edit`)}
-                  title="编辑文章"
+                  onClick={() => {
+                    if (post.isStagingVirtual) {
+                      navigate('/blog/new')
+                    } else {
+                      navigate(`/blog/${post.slug}/edit`)
+                    }
+                  }}
+                  title={post.isStagingVirtual ? '新文章，推送后可在仓库中编辑' : '编辑文章'}
                 />
               </div>
             )

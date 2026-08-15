@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { listFriends, createFriend, deleteFriend, saveFriends, uploadImage } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SafeImage } from '@/components/shared/SafeImage'
-import { Plus, Edit, Trash2, Link, Save, X, Upload } from 'lucide-react'
+import { Plus, Edit, Trash2, Link, Save, X, Upload, AlertTriangle } from 'lucide-react'
 import type { Friend } from '@/types'
 import { toast } from 'sonner'
 
@@ -15,7 +16,9 @@ const emptyFriend: Friend = { name: '', url: '', avatar: '', description: '', ba
 export function FriendsPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const [friends, setFriends] = useState<Friend[]>([])
+  const [serverFriends, setServerFriends] = useState<Friend[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState<Friend | null>(null)
@@ -23,11 +26,20 @@ export function FriendsPage() {
   const [isNew, setIsNew] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // 检查是否有暂存的友链修改
+  const stagedFriendChange = useMemo(() =>
+    stagedChanges.find(c => c.module === 'friend' && c.action === 'update' && c.serviceFunc === 'saveFriends'),
+    [stagedChanges]
+  )
+  const stagedFriendsList = stagedFriendChange ? (stagedFriendChange.args[0] as Friend[]) : null
+
   const load = async () => {
     if (!token) return
     setLoading(true)
     try {
-      setFriends(await listFriends(token))
+      const data = await loadWithCache('friends', token, listFriends)
+      setServerFriends(data)
+      setFriends(stagedFriendsList || data)
     } catch (e: any) {
       toast.error('加载失败: ' + e.message)
     } finally {
@@ -35,7 +47,19 @@ export function FriendsPage() {
     }
   }
 
-  useEffect(() => { load() }, [token])
+  useEffect(() => { load() }, [token, stagedFriendsList])
+
+  // 判断某个友链的某个字段是否被修改
+  const isFriendFieldModified = (filePath: string | undefined, field: keyof Friend): boolean => {
+    if (!stagedFriendsList || !serverFriends.length || !filePath) return false
+    const old = serverFriends.find(f => f._filePath === filePath)
+    const staged = stagedFriendsList.find(f => f._filePath === filePath)
+    if (!old || !staged) return false
+    return old[field] !== staged[field]
+  }
+
+  const modifiedClass = (filePath: string | undefined, field: keyof Friend) =>
+    isFriendFieldModified(filePath, field) ? 'ring-2 ring-warning/50 bg-warning/5' : ''
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -57,12 +81,12 @@ export function FriendsPage() {
     setSaving(true)
     try {
       if (isNew) {
-        addChange({ module: 'friend', title: `新增友链「${editing.name}」`, action: 'create', serviceFunc: 'createFriend', args: [editing], commitMessage: `feat(friends): add friend "${editing.name}"` })
+        addChange({ module: 'friend', title: `新增友链「${editing.name}」`, action: 'create', serviceFunc: 'createFriend', args: [editing], commitMessage: `feat(friends): add friend "${editing.name}"`, sourceRoute: '/friends' })
       } else {
         const updated = friends.map((f) =>
           f._filePath === editing._filePath ? editing : f
         )
-        addChange({ module: 'friend', title: `更新友链「${editing.name}」`, action: 'update', serviceFunc: 'saveFriends', args: [updated], commitMessage: `feat(friends): update friend "${editing.name}"` })
+        addChange({ module: 'friend', title: `更新友链「${editing.name}」`, action: 'update', serviceFunc: 'saveFriends', args: [updated], commitMessage: `feat(friends): update friend "${editing.name}"`, sourceRoute: '/friends' })
       }
       toast.success('已暂存')
       setEditing(null)
@@ -78,7 +102,7 @@ export function FriendsPage() {
   const handleDelete = async () => {
     if (!token || !deleteTarget) return
     try {
-      addChange({ module: 'friend', title: `删除友链「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteFriend', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(friends): delete friend "${deleteTarget.name}"` })
+      addChange({ module: 'friend', title: `删除友链「${deleteTarget.name}」`, action: 'delete', serviceFunc: 'deleteFriend', args: [deleteTarget._filePath!, deleteTarget.name], commitMessage: `feat(friends): delete friend "${deleteTarget.name}"`, sourceRoute: '/friends' })
       toast.success('已暂存')
       setDeleteTarget(null)
       load()
@@ -148,16 +172,23 @@ export function FriendsPage() {
         <div className="modal modal-open">
           <div className="modal-box">
             <h3 className="font-bold text-lg mb-4">{isNew ? '添加友链' : '编辑友链'}</h3>
+            {/* 暂存版本提示 */}
+            {!isNew && stagedFriendsList && isFriendFieldModified(editing._filePath, 'name') !== undefined && (
+              <div className="alert alert-warning py-1.5 px-3 text-xs mb-3">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>黄色高亮字段为暂存区已修改内容</span>
+              </div>
+            )}
             <div className="space-y-3">
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'name')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">name *</span></label>
                 <input className="input input-bordered input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'url')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">url *</span></label>
                 <input className="input input-bordered input-sm" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'avatar')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">avatar</span></label>
                 <div className="flex gap-3">
                   <div className="w-16 h-16 rounded-xl overflow-hidden bg-base-200 ring-2 ring-base-100 shadow-md flex items-center justify-center shrink-0">
@@ -185,11 +216,11 @@ export function FriendsPage() {
                   </div>
                 </div>
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'description')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">description</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm" rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
               </div>
-              <div className="form-control">
+              <div className={`form-control ${modifiedClass(editing._filePath, 'badge')}`}>
                 <label className="label py-1"><span className="label-text text-sm font-medium">badge</span></label>
                 <input className="input input-bordered input-sm" value={editing.badge || ''} onChange={(e) => setEditing({ ...editing, badge: e.target.value })} />
               </div>

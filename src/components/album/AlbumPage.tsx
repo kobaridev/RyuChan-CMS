@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { listAlbums, saveAlbum, createAlbum, uploadImage, deleteAlbum } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { resolveImageUrl } from '@/lib/image-url'
 import { SafeImage } from '@/components/shared/SafeImage'
 import { IconPicker } from '@/components/shared/IconPicker'
@@ -29,7 +30,7 @@ export function AlbumPage() {
   const load = async () => {
     if (!token) return
     setLoading(true)
-    try { setAlbums(await listAlbums(token)) }
+    try { setAlbums(await loadWithCache('album', token, listAlbums)) }
     catch (e: any) { toast.error('加载失败: ' + e.message) }
     finally { setLoading(false) }
   }
@@ -42,9 +43,9 @@ export function AlbumPage() {
     setSaving(true)
     try {
       if (isNew) {
-        addChange({ module: 'album', title: `新建相册「${editing.title}」`, action: 'create', serviceFunc: 'createAlbum', args: [editing], commitMessage: `feat(album): add album "${editing.title}"` })
+        addChange({ module: 'album', title: `新建相册「${editing.title}」`, action: 'create', serviceFunc: 'createAlbum', args: [editing], commitMessage: `feat(album): add album "${editing.title}"`, sourceRoute: '/album' })
       } else {
-        addChange({ module: 'album', title: `更新相册「${editing.title}」`, action: 'update', serviceFunc: 'saveAlbum', args: [editing], commitMessage: `feat(album): update album "${editing.title}"` })
+        addChange({ module: 'album', title: `更新相册「${editing.title}」`, action: 'update', serviceFunc: 'saveAlbum', args: [editing], commitMessage: `feat(album): update album "${editing.title}"`, sourceRoute: '/album' })
       }
       toast.success('已暂存')
       setEditing(null)
@@ -58,7 +59,7 @@ export function AlbumPage() {
     if (!token || !deleteTarget) return
     setSaving(true)
     try {
-      addChange({ module: 'album', title: `删除相册「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteAlbum', args: [deleteTarget._filePath!, deleteTarget.title], commitMessage: `feat(album): delete album "${deleteTarget.title}"` })
+      addChange({ module: 'album', title: `删除相册「${deleteTarget.title}」`, action: 'delete', serviceFunc: 'deleteAlbum', args: [deleteTarget._filePath!, deleteTarget.title], commitMessage: `feat(album): delete album "${deleteTarget.title}"`, sourceRoute: '/album' })
       toast.success('已暂存')
       setDeleteTarget(null)
       load()
@@ -128,7 +129,7 @@ export function AlbumPage() {
                 {album.photos?.length > 0 && (
                   <div className="grid grid-cols-4 gap-1 mt-2">
                     {album.photos.slice(0, 4).map((p, i) => (
-                      <SafeImage key={i} src={p.src} alt="" className="w-full aspect-square object-cover rounded" />
+                      <SafeImage key={i} src={p.src} alt="" basePath={album._filePath} className="w-full aspect-square object-cover rounded" />
                     ))}
                   </div>
                 )}
@@ -194,7 +195,7 @@ export function AlbumPage() {
                   {editing.photos?.map((photo, idx) => (
                     <div key={idx} className="flex gap-2 items-start p-2 bg-base-200/50 rounded-lg">
                       {photo.src && (
-                        <SafeImage src={photo.src} alt="" className="w-16 h-16 object-cover rounded" />
+                        <SafeImage src={photo.src} alt="" basePath={editing?._filePath} className="w-16 h-16 object-cover rounded" />
                       )}
                       {!photo.src && (
                         <div className="w-16 h-16 bg-base-300 rounded flex items-center justify-center shrink-0">

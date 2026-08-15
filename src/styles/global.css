@@ -132,3 +132,26 @@ body {
   background: oklch(var(--p) / 0.1) !important;
 }
 
+/* 侧边栏展开箭头 */
+.caret-icon {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  transition: transform 0.2s ease;
+  background: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6l6 6-6 6' stroke='%23000' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 6l6 6-6 6' stroke='%23000' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  opacity: 0.65;
+}
+
+details[open] > summary .caret-icon {
+  transform: rotate(90deg);
+  opacity: 0.85;
+}
+

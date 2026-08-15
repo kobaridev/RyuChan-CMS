@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { useStagingStore } from '@/stores/staging-store'
 import { getSiteConfig, saveSiteConfig, uploadImage } from '@/lib/content-service'
+import { loadWithCache } from '@/stores/cache-store'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { Save, Plus, Trash2, ChevronUp, ChevronDown, Globe, User } from 'lucide-react'
+import { Save, Plus, Trash2, ChevronUp, ChevronDown, Globe, User, AlertTriangle } from 'lucide-react'
 import { Icon } from '@iconify/react'
 import type { SiteConfig } from '@/types'
 import { toast } from 'sonner'
@@ -49,11 +50,11 @@ function Section({ icon: IconC, title, children }: { icon: React.FC<{ className?
   )
 }
 
-function TextField({ label, value, onChange, type = 'text', placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string
+function TextField({ label, value, onChange, type = 'text', placeholder, className = '' }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string
 }) {
   return (
-    <div className="form-control w-full">
+    <div className={`form-control w-full ${className}`}>
       <label className="label py-1"><span className="label-text text-xs font-bold tracking-wide uppercase text-primary/60">{label}</span></label>
       {type === 'textarea' ? (
         <textarea className="textarea textarea-bordered textarea-sm w-full bg-base-100 font-medium focus:outline-none focus:border-primary/50 transition-colors" rows={2} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
@@ -97,24 +98,62 @@ function ImageBox({
 export function SiteConfigPage() {
   const { token } = useAuthStore()
   const addChange = useStagingStore(s => s.addChange)
+  const stagedChanges = useStagingStore(s => s.changes)
   const [config, setConfig] = useState<SiteConfig | null>(null)
+  const [serverConfig, setServerConfig] = useState<SiteConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadTarget, setUploadTarget] = useState<string>('')
   const imageInputRef = useState<HTMLInputElement | null>(null)
 
+  // 检查是否有暂存的站点配置修改
+  const stagedChange = useMemo(() => {
+    return stagedChanges.find(c =>
+      c.module === 'siteConfig' && c.action === 'update'
+    )
+  }, [stagedChanges])
+
+  const stagedConfig = stagedChange ? (stagedChange.args[0] as SiteConfig) : null
+
   useEffect(() => {
     if (!token) return
     setLoading(true)
-    getSiteConfig(token).then(setConfig).catch((e) => toast.error('加载失败: ' + e.message)).finally(() => setLoading(false))
-  }, [token])
+    loadWithCache('siteConfig', token, getSiteConfig)
+      .then((data) => {
+        setServerConfig(data)
+        // 如果暂存区有更新版本，优先使用暂存数据
+        if (stagedConfig) {
+          setConfig(stagedConfig)
+        } else {
+          setConfig(data)
+        }
+      })
+      .catch((e) => toast.error('加载失败: ' + e.message))
+      .finally(() => setLoading(false))
+  }, [token, stagedConfig])
+
+  // 深度比较：通过路径字符串判断字段是否被修改
+  // 路径格式: 'site.tab', 'site.theme.light', 'user.name' 等
+  const isModified = (path: string): boolean => {
+    if (!serverConfig || !stagedConfig) return false
+    const get = (obj: unknown, p: string) => p.split('.').reduce((o: any, k) => o?.[k], obj)
+    const oldVal = get(serverConfig, path)
+    const newVal = get(stagedConfig, path)
+    if (Array.isArray(oldVal) && Array.isArray(newVal)) {
+      return JSON.stringify(oldVal) !== JSON.stringify(newVal)
+    }
+    return oldVal !== newVal
+  }
+
+  const modifiedClass = (path: string) =>
+    isModified(path) ? 'ring-2 ring-warning/50 bg-warning/5' : ''
 
   const handleSave = async () => {
     if (!token || !config) return
     setSaving(true)
     try {
-      addChange({ module: 'siteConfig', title: '更新站点配置', action: 'update', serviceFunc: 'saveSiteConfig', args: [config], commitMessage: 'feat(config): update site config' })
+      addChange({ module: 'siteConfig', title: '更新站点配置', action: 'update', serviceFunc: 'saveSiteConfig', args: [config], commitMessage: 'feat(config): update site config', sourceRoute: '/site-config' })
       toast.success('已暂存')
     } catch (e: any) { toast.error('暂存失败: ' + e.message) }
     finally { setSaving(false) }
@@ -178,6 +217,14 @@ export function SiteConfigPage() {
           保存配置
         </button>
       </div>
+
+      {/* 暂存版本提示 */}
+      {stagedConfig && serverConfig && (
+        <div className="alert alert-warning py-2 px-4 text-sm">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>当前正在编辑<strong>暂存版本</strong>，黄色高亮字段为已修改内容。推送后将以暂存版本为准。</span>
+        </div>
+      )}
 
       <div className="card bg-base-100 shadow-sm border border-base-300">
         <div className="card-body p-4 space-y-5">
@@ -252,18 +299,18 @@ export function SiteConfigPage() {
 
             {/* 基本信息 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <TextField label="浏览器标签页标题" value={site.tab} onChange={(v) => updateSite('tab', v)} />
-              <TextField label="站点标题" value={site.title} onChange={(v) => updateSite('title', v)} />
-              <div className="form-control w-full">
+              <TextField label="浏览器标签页标题" value={site.tab} onChange={(v) => updateSite('tab', v)} className={modifiedClass('site.tab')} />
+              <TextField label="站点标题" value={site.title} onChange={(v) => updateSite('title', v)} className={modifiedClass('site.title')} />
+              <div className={`form-control w-full ${modifiedClass('site.title_type')}`}>
                 <label className="label py-1"><span className="label-text text-xs font-bold tracking-wide uppercase text-primary/60">标题类型</span></label>
                 <select className="select select-bordered select-sm w-full bg-base-100 focus:outline-none focus:border-primary/50 transition-colors" value={site.title_type} onChange={(e) => updateSite('title_type', e.target.value)}>
                   <option value="text">text（文字）</option>
                   <option value="image">image（图片）</option>
                 </select>
               </div>
-              <TextField label="语言" value={site.language} onChange={(v) => updateSite('language', v)} />
-              <TextField label="日期格式" value={site.date_format} onChange={(v) => updateSite('date_format', v)} />
-              <div className="form-control w-full md:col-span-2">
+              <TextField label="语言" value={site.language} onChange={(v) => updateSite('language', v)} className={modifiedClass('site.language')} />
+              <TextField label="日期格式" value={site.date_format} onChange={(v) => updateSite('date_format', v)} className={modifiedClass('site.date_format')} />
+              <div className={`form-control w-full md:col-span-2 ${modifiedClass('site.description')}`}>
                 <label className="label py-1"><span className="label-text text-xs font-bold tracking-wide uppercase text-primary/60">站点描述</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm w-full bg-base-100 font-medium focus:outline-none focus:border-primary/50 transition-colors" rows={2} value={site.description} onChange={(e) => updateSite('description', e.target.value)} />
               </div>
@@ -273,9 +320,9 @@ export function SiteConfigPage() {
             <div className="bg-base-200/60 rounded-lg p-3 space-y-2">
               <h4 className="text-xs font-extrabold text-base-content/50 uppercase tracking-wider">主题配色</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <TextField label="浅色主题" value={site.theme.light} onChange={(v) => updateTheme('light', v)} />
-                <TextField label="深色主题" value={site.theme.dark} onChange={(v) => updateTheme('dark', v)} />
-                <TextField label="代码高亮主题" value={site.theme.code} onChange={(v) => updateTheme('code', v)} />
+                <TextField label="浅色主题" value={site.theme.light} onChange={(v) => updateTheme('light', v)} className={modifiedClass('site.theme.light')} />
+                <TextField label="深色主题" value={site.theme.dark} onChange={(v) => updateTheme('dark', v)} className={modifiedClass('site.theme.dark')} />
+                <TextField label="代码高亮主题" value={site.theme.code} onChange={(v) => updateTheme('code', v)} className={modifiedClass('site.theme.code')} />
               </div>
             </div>
 
@@ -289,9 +336,9 @@ export function SiteConfigPage() {
                     <input type="checkbox" className="toggle toggle-primary toggle-sm" checked={site.banner.enableRandom} onChange={(e) => updateBanner('enableRandom', e.target.checked)} />
                   </label>
                 </div>
-                <TextField label="随机横幅API" value={site.banner.randomUrl} onChange={(v) => updateBanner('randomUrl', v)} />
-                <TextField label="随机数量" value={String(site.banner.randomCount)} onChange={(v) => updateBanner('randomCount', Number(v))} type="number" />
-                <TextField label="横幅高度" value={site.banner.height} onChange={(v) => updateBanner('height', v)} />
+                <TextField label="随机横幅API" value={site.banner.randomUrl} onChange={(v) => updateBanner('randomUrl', v)} className={modifiedClass('site.banner.randomUrl')} />
+                <TextField label="随机数量" value={String(site.banner.randomCount)} onChange={(v) => updateBanner('randomCount', Number(v))} type="number" className={modifiedClass('site.banner.randomCount')} />
+                <TextField label="横幅高度" value={site.banner.height} onChange={(v) => updateBanner('height', v)} className={modifiedClass('site.banner.height')} />
               </div>
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -370,9 +417,9 @@ export function SiteConfigPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <TextField label="用户名" value={user.name} onChange={(v) => updateUser('name', v)} />
-              <TextField label="个人网站" value={user.site} onChange={(v) => updateUser('site', v)} />
-              <div className="form-control w-full md:col-span-2">
+              <TextField label="用户名" value={user.name} onChange={(v) => updateUser('name', v)} className={modifiedClass('user.name')} />
+              <TextField label="个人网站" value={user.site} onChange={(v) => updateUser('site', v)} className={modifiedClass('user.site')} />
+              <div className={`form-control w-full md:col-span-2 ${modifiedClass('user.description')}`}>
                 <label className="label py-1"><span className="label-text text-xs font-bold tracking-wide uppercase text-primary/60">个人描述</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm w-full bg-base-100 font-medium focus:outline-none focus:border-primary/50 transition-colors" rows={2} value={user.description} onChange={(e) => updateUser('description', e.target.value)} />
               </div>

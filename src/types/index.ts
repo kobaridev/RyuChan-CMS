@@ -245,4 +245,6 @@ export interface StagedChange {
   args: unknown[]          // 传给 serviceFunc 的参数（不含 token）
   commitMessage: string
   timestamp: number
+  /** 跳转路由，点击暂存项标题时跳转到对应编辑页 */
+  sourceRoute?: string
 }
