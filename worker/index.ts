@@ -24,8 +24,8 @@ export default {
       })
     }
 
-    // OAuth 回调
-    if (url.pathname === '/callback') {
+    // OAuth 回调（兼容 /callback 和 /auth/callback）
+    if (url.pathname === '/callback' || url.pathname === '/auth/callback') {
       const code = url.searchParams.get('code')
       const state = url.searchParams.get('state')
       const error = url.searchParams.get('error')
@@ -96,8 +96,8 @@ export default {
       }
     }
 
-    // 健康检查
-    if (url.pathname === '/health') {
+    // 健康检查（兼容 /health 和 /auth/health）
+    if (url.pathname === '/health' || url.pathname === '/auth/health') {
       return new Response('OK', { status: 200 })
     }
 
