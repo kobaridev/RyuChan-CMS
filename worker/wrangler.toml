@@ -2,10 +2,17 @@ name = "ryuchan-cms-oauth"
 main = "index.ts"
 compatibility_date = "2024-01-01"
 
+# 路由：Worker 绑定到 cms.131714.xyz/auth/* 处理 OAuth 回调
+# 注意：需要在 Cloudflare Dashboard 中为 cms.131714.xyz 添加 DNS 记录（CNAME 到 Worker 或 proxied）
+# 或者使用 routes 配置（需要域名已在 Cloudflare 上）
+# routes = [
+#   { pattern = "cms.131714.xyz/auth/*", zone_name = "131714.xyz" }
+# ]
+
 [vars]
 ALLOWED_USER = "kobaridev"
-# 以下变量通过 wrangler secret put 设置
-# GITHUB_CLIENT_ID
-# GITHUB_CLIENT_SECRET
-# REDIRECT_URI
-# CMS_ORIGIN
+# 以下变量通过 npx wrangler secret put 设置（在 worker 目录下执行）：
+# GITHUB_CLIENT_ID     - GitHub OAuth App 的 Client ID
+# GITHUB_CLIENT_SECRET - GitHub OAuth App 的 Client Secret
+# REDIRECT_URI         - GitHub OAuth 回调地址，必须与 GitHub OAuth App 设置一致
+# CMS_ORIGIN           - CMS 前端地址，用于 CORS 和登录后跳转
