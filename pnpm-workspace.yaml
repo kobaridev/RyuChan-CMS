@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - js-yaml@5.3.0

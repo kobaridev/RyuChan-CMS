@@ -1,0 +1,183 @@
+import { useEffect, useState } from 'react'
+import { useAuthStore } from '@/stores/auth-store'
+import { listFriends, createFriend, deleteFriend, saveFriends } from '@/lib/content-service'
+import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { Plus, Edit, Trash2, Link, Save, X } from 'lucide-react'
+import type { Friend } from '@/types'
+import { toast } from 'sonner'
+
+const emptyFriend: Friend = { name: '', url: '', avatar: '', description: '', badge: '' }
+
+export function FriendsPage() {
+  const { token } = useAuthStore()
+  const [friends, setFriends] = useState<Friend[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState<Friend | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Friend | null>(null)
+  const [isNew, setIsNew] = useState(false)
+
+  const load = async () => {
+    if (!token) return
+    setLoading(true)
+    try {
+      setFriends(await listFriends(token))
+    } catch (e: any) {
+      toast.error('加载失败: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [token])
+
+  const handleSave = async () => {
+    if (!token || !editing) return
+    if (!editing.name.trim() || !editing.url.trim()) {
+      toast.error('名称和链接为必填')
+      return
+    }
+    setSaving(true)
+    try {
+      if (isNew) {
+        await createFriend(token, editing)
+      } else {
+        const updated = friends.map((f) =>
+          f._filePath === editing._filePath ? editing : f
+        )
+        await saveFriends(token, updated)
+      }
+      toast.success(isNew ? '友链已添加' : '友链已更新')
+      setEditing(null)
+      setIsNew(false)
+      load()
+    } catch (e: any) {
+      toast.error('保存失败: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!token || !deleteTarget) return
+    try {
+      await deleteFriend(token, deleteTarget._filePath!, deleteTarget.name)
+      toast.success(`已删除 "${deleteTarget.name}"`)
+      setDeleteTarget(null)
+      load()
+    } catch (e: any) {
+      toast.error('删除失败: ' + e.message)
+    }
+  }
+
+  if (loading) return <LoadingSpinner />
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">友链管理</h1>
+        <button
+          className="btn btn-primary btn-sm gap-1"
+          onClick={() => { setEditing({ ...emptyFriend }); setIsNew(true) }}
+        >
+          <Plus className="w-4 h-4" /> 添加友链
+        </button>
+      </div>
+
+      {friends.length === 0 ? (
+        <EmptyState icon={<Link className="w-16 h-16" />} title="还没有友链" description='点击"添加友链"开始' />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {friends.map((friend) => (
+            <div key={friend._filePath} className="card bg-base-100 shadow-sm border border-base-300">
+              <div className="card-body p-4">
+                <div className="flex items-center gap-3">
+                  {friend.avatar && (
+                    <img src={friend.avatar} alt="" className="w-12 h-12 rounded-xl object-cover" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold truncate">{friend.name}</h3>
+                    <p className="text-xs text-base-content/50 truncate">{friend.url}</p>
+                  </div>
+                </div>
+                {friend.description && (
+                  <p className="text-sm text-base-content/60 mt-2">{friend.description}</p>
+                )}
+                {friend.badge && (
+                  <span className="badge badge-sm mt-1">{friend.badge}</span>
+                )}
+                <div className="card-actions justify-end mt-2">
+                  <button
+                    className="btn btn-ghost btn-xs btn-square"
+                    onClick={() => { setEditing({ ...friend }); setIsNew(false) }}
+                  >
+                    <Edit className="w-3 h-3" />
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-xs btn-square text-error"
+                    onClick={() => setDeleteTarget(friend)}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 编辑弹窗 */}
+      {editing && (
+        <div className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-bold text-lg mb-4">{isNew ? '添加友链' : '编辑友链'}</h3>
+            <div className="space-y-3">
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-sm font-medium">名称 *</span></label>
+                <input className="input input-bordered input-sm" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-sm font-medium">链接 *</span></label>
+                <input className="input input-bordered input-sm" value={editing.url} onChange={(e) => setEditing({ ...editing, url: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-sm font-medium">头像 URL</span></label>
+                <input className="input input-bordered input-sm" value={editing.avatar || ''} onChange={(e) => setEditing({ ...editing, avatar: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-sm font-medium">描述</span></label>
+                <textarea className="textarea textarea-bordered textarea-sm" rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-sm font-medium">标签</span></label>
+                <input className="input input-bordered input-sm" value={editing.badge || ''} onChange={(e) => setEditing({ ...editing, badge: e.target.value })} />
+              </div>
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditing(null)}>
+                <X className="w-4 h-4" /> 取消
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                {saving ? <span className="loading loading-spinner loading-sm" /> : <Save className="w-4 h-4" />}
+                保存
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => setEditing(null)}>
+            <button className="cursor-default">close</button>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="删除友链"
+        message={`确定要删除「${deleteTarget?.name}」吗？`}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </div>
+  )
+}

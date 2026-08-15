@@ -1,0 +1,11 @@
+name = "ryuchan-cms-oauth"
+main = "index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+ALLOWED_USER = "kobaridev"
+# 以下变量通过 wrangler secret put 设置
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+# REDIRECT_URI
+# CMS_ORIGIN
