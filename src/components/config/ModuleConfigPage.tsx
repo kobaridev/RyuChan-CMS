@@ -18,7 +18,6 @@ const MODULE_CONFIGS: Record<string, { label: string; path: string; type: 'yaml'
   anime: { label: '追番模块', path: CONTENT_PATHS.animeConfig, type: 'yaml' },
   analysis: { label: '分析模块', path: CONTENT_PATHS.analysisConfig, type: 'yaml' },
   footer: { label: '页脚配置', path: CONTENT_PATHS.footerConfig, type: 'yaml' },
-  github: { label: 'GitHub 配置', path: CONTENT_PATHS.githubConfig, type: 'yaml' },
   'analysis-umami': { label: 'Umami 统计脚本', path: CONTENT_PATHS.analysisUmamiHtml, type: 'html' },
   'analysis-clarity': { label: 'Clarity 统计脚本', path: CONTENT_PATHS.analysisClarity, type: 'html' },
   'anime-bilibili': { label: 'Bilibili 配置', path: CONTENT_PATHS.animeBilibili, type: 'yaml' },

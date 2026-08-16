@@ -43,5 +43,4 @@ export const CONTENT_PATHS = {
   analysisClarity: 'src/content/analysis/provider/claity.head.html',
   analysisUmamiHtml: 'src/content/analysis/provider/umami.head.html',
   footerConfig: 'src/content/footer/config.yaml',
-  githubConfig: 'src/content/github/config.yaml',
 } as const
