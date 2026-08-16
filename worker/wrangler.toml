@@ -2,11 +2,13 @@ name = "ryuchan-cms-oauth"
 main = "index.ts"
 compatibility_date = "2024-01-01"
 
-# 路由：Worker 绑定到 cms.131714.xyz/auth/* 处理 OAuth 回调
-# 注意：需要在 Cloudflare Dashboard 中为 cms.131714.xyz 添加 DNS 记录（CNAME 到 Worker 或 proxied）
-# 或者使用 routes 配置（需要域名已在 Cloudflare 上）
+# 路由：Worker 绑定到 auth.131714.xyz 处理 OAuth 回调
+# 在 Cloudflare Dashboard 中：
+#   1. DNS → 添加 A 记录 auth → 192.0.2.1（橙色云朵代理）
+#   2. Workers Routes → auth.131714.xyz/* → ryuchan-cms-oauth
+# 或者直接用 routes 配置（需要域名已在 Cloudflare 上）：
 # routes = [
-#   { pattern = "cms.131714.xyz/auth/*", zone_name = "131714.xyz" }
+#   { pattern = "auth.131714.xyz/*", zone_name = "131714.xyz" }
 # ]
 
 [vars]
